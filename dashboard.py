@@ -62,9 +62,9 @@ PRE_HISTORY_DAYS = 60         # trading days of context before strategy start
 # Oil rises from today's level toward OIL_WAR_PEAK_MULT × current price
 # by war_end_date, then reverts to pre-war baseline over OIL_REVERT_DAYS.
 # Set WAR_END_DATE to None for a plain random-walk forecast.
-WAR_END_DATE      = "2026-5-1"   # e.g. "2025-09-01"  or  None
+WAR_END_DATE      = "2026-4-2"   # e.g. "2025-09-01"  or  None
 OIL_WAR_PEAK_MULT = 1.30   # oil rises to 130% of current price by war end
-OIL_REVERT_DAYS   = 60     # trading days for oil to return to baseline after war ends
+OIL_REVERT_DAYS   = 30     # trading days for oil to return to baseline after war ends
 
 # Monte Carlo forecast settings.
 # N_FORECAST is automatically extended to reach WAR_END_DATE + OIL_REVERT_DAYS.
