@@ -56,21 +56,21 @@ STRATEGY_START_DATE = "2026-02-28"    # e.g. "2024-10-01"  or  None
 M_HISTORY_DAYS  = 60          # trading days of active strategy history
 
 # How many trading days of raw market data to show BEFORE the strategy start.
-# These bars have no portfolio value — they just show the market backdrop.
 PRE_HISTORY_DAYS = 60         # trading days of context before strategy start
 
-# Monte Carlo forecast settings
-N_FORECAST = 30               # trading days to project forward
+# Projected war-end date.  Must be in the future (in the forecast zone).
+# When set, oil reverts toward its pre-war baseline price by this date,
+# showing how the strategy would perform as the conflict unwinds.
+# Set to None to use a plain random-walk forecast with no reversion.
+WAR_END_DATE = "2026-5-1"           # e.g. "2025-09-01"  or  None
+
+# Monte Carlo forecast settings.
+# N_FORECAST is automatically extended to reach WAR_END_DATE when set.
+N_FORECAST = 30               # minimum trading days to project forward
 N_PATHS    = 500              # simulation paths (higher = smoother bands)
 
 # ─────────────────────────────────────────────────────────────────────────
 # Derived: how far back to fetch data
-#   We need:
-#     20 warm-up bars for rolling signals in context window
-#   + PRE_HISTORY_DAYS of context bars
-#   + 20 warm-up bars for the strategy window
-#   + active strategy bars (from start_date to today, or M_HISTORY_DAYS)
-#   Add a 60% buffer for weekends/holidays → multiply by 1.6
 # ─────────────────────────────────────────────────────────────────────────
 if STRATEGY_START_DATE:
     _start_dt = datetime.strptime(STRATEGY_START_DATE, "%Y-%m-%d")
@@ -119,13 +119,44 @@ if STRATEGY_START_DATE:
     effective_start = STRATEGY_START_DATE
     print(f"  Strategy start date: {effective_start} (explicit)", flush=True)
 else:
-    # Derive from the data: go back M_HISTORY_DAYS trading bars from today
     combined = pd.DataFrame({"eq": eq, "oil": oil}).dropna()
     if len(combined) >= M_HISTORY_DAYS:
         effective_start = combined.index[-M_HISTORY_DAYS].strftime("%Y-%m-%d")
     else:
         effective_start = combined.index[0].strftime("%Y-%m-%d")
     print(f"  Strategy start date: {effective_start} (last {M_HISTORY_DAYS} bars)", flush=True)
+
+# ─────────────────────────────────────────────────────────────────────────
+# Oil baseline — the "pre-war" oil price at strategy start
+# This is the reversion target when WAR_END_DATE is set.
+# ─────────────────────────────────────────────────────────────────────────
+combined_full = pd.DataFrame({"eq": eq, "oil": oil}).dropna()
+start_ts      = pd.Timestamp(effective_start)
+bars_at_start = combined_full[combined_full.index <= start_ts]
+oil_baseline  = float(bars_at_start["oil"].iloc[-1]) if len(bars_at_start) > 0 else float(oil.iloc[0])
+print(f"  Oil baseline (pre-war): ${oil_baseline:.2f}", flush=True)
+
+# ─────────────────────────────────────────────────────────────────────────
+# Extend N_FORECAST to cover WAR_END_DATE if it falls beyond N_FORECAST days
+# ─────────────────────────────────────────────────────────────────────────
+effective_forecast = N_FORECAST
+if WAR_END_DATE:
+    war_end_dt    = datetime.strptime(WAR_END_DATE, "%Y-%m-%d")
+    today_dt      = datetime.today()
+    calendar_days = (war_end_dt - today_dt).days
+    if calendar_days <= 0:
+        print(f"  WARNING: WAR_END_DATE {WAR_END_DATE} is in the past — ignoring.", flush=True)
+        effective_war_end = None
+    else:
+        # Convert calendar days to approximate trading days (÷ 1.4 for weekends)
+        trading_days_to_end = max(int(calendar_days / 1.4), 1)
+        effective_forecast   = max(N_FORECAST, trading_days_to_end + 10)
+        effective_war_end    = WAR_END_DATE
+        print(f"  War end date: {WAR_END_DATE}  "
+              f"(≈{trading_days_to_end} trading days → forecast extended to {effective_forecast}d)",
+              flush=True)
+else:
+    effective_war_end = None
 
 # ─────────────────────────────────────────────────────────────────────────
 # TODAY'S LIVE SIGNAL  (OilWar Active — the actionable number)
@@ -187,20 +218,22 @@ for strat in REGISTRY:
           f"({bars[0].date} → {bars[-1].date})  "
           f"pv=${bars[-1].portfolio_value:,.0f}", flush=True)
 
-    print(f"  Forecast: {strat.name} ({N_PATHS} paths × {N_FORECAST} days)…", flush=True)
+    print(f"  Forecast: {strat.name} ({N_PATHS} paths × {effective_forecast} days)…", flush=True)
 
     fc_strat = (BuyOnlyOilWarStrategy()
                 if isinstance(strat, BuyOnlyOilWarStrategy)
                 else type(strat)())
 
     fc = simulate_future(
-        eq_series       = eq,
-        oil_series      = oil,
-        strategy        = fc_strat,
-        last_bar        = bars[-1],
-        forecast_days   = N_FORECAST,
-        n_paths         = N_PATHS,
-        initial_capital = INITIAL_CAPITAL,
+        eq_series          = eq,
+        oil_series         = oil,
+        strategy           = fc_strat,
+        last_bar           = bars[-1],
+        forecast_days      = effective_forecast,
+        n_paths            = N_PATHS,
+        initial_capital    = INITIAL_CAPITAL,
+        war_end_date       = effective_war_end,
+        oil_baseline_price = oil_baseline,
     )
 
     strategies_output.append({
@@ -246,8 +279,10 @@ output = {
     "oil_ticker":         OIL_TICKER,
     "strategy_start":     effective_start,
     "pre_history_days":   PRE_HISTORY_DAYS,
-    "forecast_days":      N_FORECAST,
+    "forecast_days":      effective_forecast,
     "initial_capital":    INITIAL_CAPITAL,
+    "war_end_date":       effective_war_end,          # None or "YYYY-MM-DD"
+    "oil_baseline":       round(oil_baseline, 2),     # pre-war oil target
     # Live point-in-time snapshot (OilWar Active)
     "live": {
         "date":       datetime.today().strftime("%Y-%m-%d"),

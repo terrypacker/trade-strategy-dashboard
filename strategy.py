@@ -456,14 +456,34 @@ def simulate_future(eq_series, oil_series, strategy: Strategy,
                     forecast_days: int = 30,
                     n_paths: int = 500,
                     seed: int = 42,
-                    initial_capital: float = 100_000) -> ForecastPath:
+                    initial_capital: float = 100_000,
+                    war_end_date: str = None,
+                    oil_baseline_price: float = None) -> ForecastPath:
     """
     Monte Carlo projection of the next `forecast_days` trading days.
 
-    Calibrates daily return distribution from the most recent 20 bars,
-    runs `n_paths` independent simulations through `strategy`, and returns
-    percentile bands (p10/p25/p50/p75/p90) of total portfolio value
-    (shares mark-to-market + remaining cash).
+    Calibrates daily return distributions from the most recent 20 real bars,
+    then runs `n_paths` independent paths forward through `strategy`.
+
+    War-end oil reversion (optional)
+    ──────────────────────────────────
+    When `war_end_date` and `oil_baseline_price` are both provided, oil
+    mean-reverts toward `oil_baseline_price` as the projected war-end
+    approaches.  The reversion uses a simple linear drift correction:
+
+      On each day d before war_end_date:
+        progress = d / total_days_to_end   (0 → 1)
+        pull     = (oil_baseline_price - curr_oil) * progress * daily_rate
+        new_oil  = curr_oil * (1 + random_return) + pull
+
+    By war_end_date, oil has reverted ~85% of the way back to baseline
+    (the remaining gap stays open to reflect real-world imperfection).
+    After war_end_date, oil follows a random walk around baseline.
+
+    Because oil feeds directly into the drawdown/oil-spike signals, this
+    reversion causes the strategy to gradually reduce its buy pressure as
+    the war premium unwinds — showing the realistic portfolio trajectory
+    if the conflict resolves on schedule.
     """
     import numpy as np
     import pandas as pd
@@ -488,6 +508,28 @@ def simulate_future(eq_series, oil_series, strategy: Strategy,
     seed_eq_win  = list(eq.iloc[-20:].values.astype(float))
     seed_oil_win = list(oil.iloc[-5:].values.astype(float))
 
+    # ── War-end reversion setup ───────────────────────────────────────────
+    # Compute how many forecast bars fall before the war_end_date, and
+    # the per-day reversion rate needed to reach ~85% closure by that date.
+    reversion_active = (war_end_date is not None and oil_baseline_price is not None
+                        and oil_baseline_price > 0)
+
+    days_to_end = None      # number of forecast bars until war end
+    daily_rate  = 0.0       # O-U mean-reversion strength per bar
+
+    if reversion_active:
+        end_ts = pd.Timestamp(war_end_date)
+        # Count how many of our forecast business days fall on or before end_ts
+        days_to_end = sum(1 for d in future_dates if d <= end_ts)
+        if days_to_end <= 0:
+            # war_end_date is already past — treat as immediate reversion
+            days_to_end = 1
+        # We want sum of (1 - daily_rate)^d for d=1..N ≈ 85% closure.
+        # Equivalent: solve (1-rate)^N = 0.15  →  rate = 1 - 0.15^(1/N)
+        TARGET_CLOSURE = 0.85
+        daily_rate = 1.0 - (1.0 - TARGET_CLOSURE) ** (1.0 / days_to_end)
+
+    # ── Monte Carlo paths ─────────────────────────────────────────────────
     all_portfolio = [[0.0] * forecast_days for _ in range(n_paths)]
     all_alloc     = [[0.0] * forecast_days for _ in range(n_paths)]
 
@@ -501,12 +543,9 @@ def simulate_future(eq_series, oil_series, strategy: Strategy,
 
         if isinstance(strategy, BuyOnlyOilWarStrategy):
             strategy.set_initial_capital(initial_capital)
-            # Re-seed the buy-only state to match where history ended:
-            # cash_deployed = allocation * initial_capital (approximate)
             deployed = last_bar.allocation * initial_capital
             if curr_eq > 0 and deployed > 0:
                 strategy.record_purchase(deployed / curr_eq, deployed)
-            # Portfolio starts from where history left off
             curr_portfolio = last_bar.portfolio_value
         else:
             curr_portfolio = last_bar.portfolio_value
@@ -516,8 +555,25 @@ def simulate_future(eq_series, oil_series, strategy: Strategy,
         for d in range(forecast_days):
             er   = float(rng.normal(eq_mu,  eq_sig))
             oilr = float(rng.normal(oil_mu, oil_sig))
-            new_eq  = curr_eq  * (1.0 + er)
-            new_oil = curr_oil * (1.0 + oilr)
+
+            # ── equity step (always pure random walk) ─────────────────────
+            new_eq = curr_eq * (1.0 + er)
+
+            # ── oil step with optional war-end reversion ──────────────────
+            new_oil_rw = curr_oil * (1.0 + oilr)   # pure random walk component
+
+            if reversion_active and d < days_to_end:
+                # Pull toward baseline: exponential mean-reversion
+                gap      = oil_baseline_price - curr_oil
+                new_oil  = new_oil_rw + gap * daily_rate
+            elif reversion_active and d >= days_to_end:
+                # War ended — random walk anchored around baseline
+                new_oil  = oil_baseline_price * (1.0 + oilr * 0.6)
+            else:
+                new_oil = new_oil_rw
+
+            # Ensure oil stays positive
+            new_oil = max(new_oil, 1.0)
 
             eq_win.append(new_eq)
             if len(eq_win) > 20: eq_win.pop(0)
@@ -555,8 +611,6 @@ def simulate_future(eq_series, oil_series, strategy: Strategy,
             if len(prev3) > 3: prev3.pop(0)
             curr_eq  = new_eq
             curr_oil = new_oil
-
-    import numpy as np
 
     pf_arr = np.array(all_portfolio)
     al_arr = np.array(all_alloc)
