@@ -23,6 +23,7 @@ Dependencies:
 
 import dataclasses
 import json
+import math
 import sys
 from datetime import datetime, timedelta
 
@@ -240,11 +241,67 @@ for strat in REGISTRY:
         oil_revert_trading_days = OIL_REVERT_DAYS,
     )
 
+    # ── Per-strategy live signal (computed fresh against today's market) ──
+    strat_live = (BuyOnlyOilWarStrategy()
+                  if isinstance(strat, BuyOnlyOilWarStrategy)
+                  else type(strat)())
+    if isinstance(strat_live, BuyOnlyOilWarStrategy):
+        strat_live.set_initial_capital(INITIAL_CAPITAL)
+        # Seed the BuyOnly state from the last history bar so next_allocation
+        # correctly knows what fraction of capital has already been deployed.
+        _last = bars[-1]
+        # shares_value / last price gives shares held; allocation * IC = cash deployed
+        _shares   = (_last.shares_value / _last.price) if _last.price > 0 else 0.0
+        _deployed = _last.allocation * INITIAL_CAPITAL
+        if _shares > 0 and _deployed > 0:
+            strat_live.record_purchase(_shares, _deployed)
+    strat_live_alloc = strat_live.next_allocation(live_signals)
+    strat_live_label = signal_label(strat_live_alloc)
+
+    # ── Per-strategy performance metrics ──────────────────────────────────
+    pv_series = [b.portfolio_value for b in bars]
+    pv_end    = pv_series[-1]
+    pv_ret    = (pv_end / INITIAL_CAPITAL) - 1
+    # Max drawdown over history
+    peak = INITIAL_CAPITAL
+    mdd  = 0.0
+    for pv in pv_series:
+        if pv > peak:
+            peak = pv
+        dd = (pv - peak) / peak if peak > 0 else 0.0
+        if dd < mdd:
+            mdd = dd
+    # Daily returns → annualised vol & Sharpe
+    daily_rets = []
+    for i in range(1, len(pv_series)):
+        prev = pv_series[i-1]
+        daily_rets.append((pv_series[i] / prev - 1) if prev > 0 else 0.0)
+    if len(daily_rets) >= 2:
+        mu_d  = sum(daily_rets) / len(daily_rets)
+        var_d = sum((r - mu_d) ** 2 for r in daily_rets) / (len(daily_rets) - 1)
+        vol_a = (var_d ** 0.5) * (252 ** 0.5)
+        sharpe = (pv_ret / vol_a) if vol_a > 0 else 0.0
+    else:
+        vol_a  = 0.0
+        sharpe = 0.0
+
     strategies_output.append({
         "name":     strat.name,
         "color":    strat.color,
         "history":  [dataclasses.asdict(b) for b in bars],
         "forecast": dataclasses.asdict(fc),
+        # Live signal for this specific strategy
+        "live_signal":     strat_live_label,
+        "live_allocation": round(strat_live_alloc, 4),
+        # Performance metrics over the history window
+        "metrics": {
+            "return":   round(pv_ret,  4),
+            "max_dd":   round(mdd,     4),
+            "sharpe":   round(sharpe,  2),
+            "vol":      round(vol_a,   4),
+            "final":    round(pv_end,  2),
+            "days":     len(bars),
+        },
     })
     print(f"    ✓  forecast p50 end=${fc.p50[-1]:,.0f}", flush=True)
 
@@ -287,7 +344,7 @@ output = {
     "initial_capital":    INITIAL_CAPITAL,
     "war_end_date":       effective_war_end,
     "oil_baseline":       round(oil_baseline, 2),
-    "oil_war_peak":       round(bars[-1].oil_price * OIL_WAR_PEAK_MULT, 2)
+    "oil_war_peak":       round(O * OIL_WAR_PEAK_MULT, 2)
                           if effective_war_end else None,
     "oil_revert_days":    OIL_REVERT_DAYS,
     # Live point-in-time snapshot (OilWar Active)

@@ -503,17 +503,20 @@ function buildOverviewPanel(container) {
   // Per-strategy portfolio value rows
   const stratRows = DATA.strategies.map(s => {
     const last  = s.history[s.history.length - 1];
-    const first = s.history[0];
     const fcEnd = s.forecast.p50[s.forecast.p50.length - 1];
     const pv    = last  ? last.portfolio_value  : 0;
-    const pv0   = first ? first.portfolio_value : DATA.initial_capital;
-    const ret   = pv0 > 0 ? (pv / pv0) - 1 : 0;
-    return `<tr>
-      <td><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s.color};margin-right:8px;vertical-align:middle"></span>${s.name}</td>
-      <td class="${sgn(ret)}-val">${pct(ret)}</td>
-      <td class="neu-val">${usd(pv)}</td>
-      <td style="color:var(--muted);font-size:.75rem">${usd(last ? last.shares_value : 0)} shares + ${usd(last ? last.cash_remaining : 0)} cash</td>
-      <td class="neu-val" style="color:${s.color}88">${usd(fcEnd)}</td>
+    const ret   = DATA.initial_capital > 0 ? (pv / DATA.initial_capital) - 1 : 0;
+    const lsig  = s.live_signal || (last ? last.signal : '—');
+    const lalloc = s.live_allocation != null
+                   ? (s.live_allocation * 100).toFixed(0) + '%'
+                   : (last ? (last.allocation * 100).toFixed(0) + '%' : '—');
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 12px"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s.color};margin-right:8px;vertical-align:middle"></span>${s.name}</td>
+      <td style="padding:8px 12px;color:${ret>=0?'var(--green)':'var(--red)'};font-family:var(--mono)">${pct(ret)}</td>
+      <td style="padding:8px 12px;font-family:var(--mono)">${usd(pv)}</td>
+      <td style="padding:8px 12px;color:var(--muted);font-size:.75rem">${usd(last ? last.shares_value : 0)} shares + ${usd(last ? last.cash_remaining : 0)} cash</td>
+      <td style="padding:8px 12px"><span class="sp-val ${signalClass(lsig)}" style="font-size:.78rem">${lsig}</span> <span style="color:var(--muted);font-size:.7rem">${lalloc}</span></td>
+      <td style="padding:8px 12px;font-family:var(--mono);color:${s.color}88">${usd(fcEnd)}</td>
     </tr>`;
   }).join('');
 
@@ -526,6 +529,7 @@ function buildOverviewPanel(container) {
         <th style="text-align:left;padding:8px 12px;font-size:.58rem;letter-spacing:.14em;color:var(--muted)">RETURN</th>
         <th style="text-align:left;padding:8px 12px;font-size:.58rem;letter-spacing:.14em;color:var(--muted)">PORTFOLIO VALUE</th>
         <th style="text-align:left;padding:8px 12px;font-size:.58rem;letter-spacing:.14em;color:var(--muted)">BREAKDOWN</th>
+        <th style="text-align:left;padding:8px 12px;font-size:.58rem;letter-spacing:.14em;color:var(--muted)">LIVE SIGNAL</th>
         <th style="text-align:left;padding:8px 12px;font-size:.58rem;letter-spacing:.14em;color:var(--muted)">FORECAST END (p50)</th>
       </tr></thead>
       <tbody style="font-size:.82rem">
@@ -545,7 +549,8 @@ function buildStrategyPanel(container, strat, stratStartStr, todayStr) {
   const first = strat.history[0];
   const fcEnd = strat.forecast.p50[strat.forecast.p50.length - 1];
   const pv    = last ? last.portfolio_value : 0;
-  const ret   = first ? (pv / first.portfolio_value) - 1 : 0;
+  // Use initial_capital as the return baseline — consistent across all strategies
+  const ret   = DATA.initial_capital > 0 ? (pv / DATA.initial_capital) - 1 : 0;
 
   const isBuyOnly = strat.name === 'OilWar Buy-Only';
 
@@ -554,6 +559,31 @@ function buildStrategyPanel(container, strat, stratStartStr, todayStr) {
     'OilWar Buy-Only': 'Accumulates shares on every buy signal. Never sells. Shows total portfolio value: shares + remaining cash.',
     'Buy & Hold':      'Passive benchmark. 100% invested from day one with no signal-based changes.',
   };
+
+  // Use per-strategy live signal if available, fall back to last history bar
+  const todaySignal = strat.live_signal  || (last ? last.signal    : '—');
+  const todayAlloc  = strat.live_allocation != null
+                      ? (strat.live_allocation * 100).toFixed(0) + '%'
+                      : (last ? (last.allocation * 100).toFixed(0) + '%' : '—');
+
+  // Per-strategy metrics (pre-computed in dashboard.py if available)
+  const metrics    = strat.metrics || {};
+  const metricHtml = metrics.sharpe != null ? `
+    <div class="sig-tile">
+      <div class="st-label">Sharpe Ratio</div>
+      <div class="st-val ${metrics.sharpe >= 0 ? 'pos' : 'neg'}">${metrics.sharpe.toFixed(2)}</div>
+      <div class="st-sub">annualised, history window</div>
+    </div>
+    <div class="sig-tile red">
+      <div class="st-label">Max Drawdown</div>
+      <div class="st-val neg">${pct(metrics.max_dd)}</div>
+      <div class="st-sub">from peak, history window</div>
+    </div>
+    <div class="sig-tile">
+      <div class="st-label">Annualised Vol</div>
+      <div class="st-val">${(metrics.vol * 100).toFixed(1)}%</div>
+      <div class="st-sub">${metrics.days}d window</div>
+    </div>` : '';
 
   // KPI tiles — same layout for all strategies, showing portfolio breakdown
   const kpiHtml = `
@@ -574,14 +604,14 @@ function buildStrategyPanel(container, strat, stratStartStr, todayStr) {
         <div class="st-sub">${last ? ((1-last.allocation)*100).toFixed(0) : 100}% of portfolio</div>
       </div>
       <div class="sig-tile ${ret >= 0 ? 'green' : 'red'}">
-        <div class="st-label">Return (History)</div>
+        <div class="st-label">Return (vs Capital)</div>
         <div class="st-val ${sgn(ret)}">${pct(ret)}</div>
-        <div class="st-sub">vs start of window</div>
+        <div class="st-sub">vs $${(DATA.initial_capital/1000).toFixed(0)}k initial</div>
       </div>
       <div class="sig-tile">
         <div class="st-label">Today's Signal</div>
-        <div class="st-val">${last ? last.signal : '—'}</div>
-        <div class="st-sub">${last ? last.date : ''}</div>
+        <div class="st-val ${signalClass(todaySignal)}">${todaySignal}</div>
+        <div class="st-sub">${todayAlloc} allocation · ${DATA.live.date}</div>
       </div>
       <div class="sig-tile blue">
         <div class="st-label">Forecast End (p50)</div>
@@ -598,6 +628,7 @@ function buildStrategyPanel(container, strat, stratStartStr, todayStr) {
         <div class="st-val neg">${usd(strat.forecast.p10[strat.forecast.p10.length-1])}</div>
         <div class="st-sub">bear scenario</div>
       </div>
+      ${metricHtml}
     </div>`;
 
   // Extra note for Buy-Only explaining unrealized vs realised
