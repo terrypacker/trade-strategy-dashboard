@@ -194,9 +194,10 @@ function buildEquityForecastChart(canvasId, strat, stratStartStr, todayStr) {
     data: {
       datasets: [
         // outer forecast band P10–P90
-        { label: 'P10–P90',  data: fcP90,
+        // fill: N (plain integer) = fill to dataset at absolute index N (Chart.js v4)
+        { label: 'P10–P90', data: fcP90,
           borderWidth: 0, pointRadius: 0,
-          backgroundColor: color + '18', fill: '-1', tension: 0.4,
+          backgroundColor: color + '18', fill: 1, tension: 0.4,
           borderColor: 'transparent' },
         { label: '_p10', data: fcP10,
           borderWidth: 0, pointRadius: 0,
@@ -205,7 +206,7 @@ function buildEquityForecastChart(canvasId, strat, stratStartStr, todayStr) {
         // inner forecast band P25–P75
         { label: 'P25–P75', data: fcP75,
           borderWidth: 0, pointRadius: 0,
-          backgroundColor: color + '30', fill: '-1', tension: 0.4,
+          backgroundColor: color + '30', fill: 3, tension: 0.4,
           borderColor: 'transparent' },
         { label: '_p25', data: fcP25,
           borderWidth: 0, pointRadius: 0,
