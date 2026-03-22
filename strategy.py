@@ -62,10 +62,22 @@ def _base_allocation(drawdown: float) -> float:
 
 
 def _oil_modifier(alloc: float, oil_spike: float) -> float:
-    if   oil_spike < 0.05: alloc *= 0.50
-    elif oil_spike < 0.10: pass
-    elif oil_spike < 0.20: alloc = min(alloc * 1.20, 1.0)
-    else:                  alloc *= 0.70
+    """
+    Scale allocation based on oil momentum relative to its 5-day average.
+
+    The original model penalised ALL low-spike readings with ×0.50, which
+    incorrectly punished falling oil (a de-escalation signal) the same as
+    quiet/no-conflict conditions.  The corrected thresholds:
+
+      oil_spike < -0.05  Oil falling sharply → de-escalation, hold/boost
+      -0.05 to +0.05     Small move either way → neutral
+      +0.05 to +0.20     Moderate war-premium build → add
+      > +0.20            Extreme spike → reduce (tail-risk)
+    """
+    if   oil_spike < -0.05: alloc = min(alloc * 1.10, 1.0)  # falling oil → de-escalation
+    elif oil_spike <  0.05: pass                              # quiet / neutral
+    elif oil_spike <  0.20: alloc = min(alloc * 1.20, 1.0)  # moderate spike → add
+    else:                   alloc *= 0.70                    # extreme spike → reduce
     return min(alloc, 1.0)
 
 
@@ -239,10 +251,12 @@ class ForecastPath:
     dates:        list   # ISO date strings
     p10:          list
     p25:          list
-    p50:          list   # median
+    p50:          list   # median portfolio value
     p75:          list
     p90:          list
     alloc_median: list   # median allocation at each future bar
+    oil_median:   list   # median simulated oil price  ← for charting
+    eq_median:    list   # median simulated equity price ← for charting
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -458,32 +472,22 @@ def simulate_future(eq_series, oil_series, strategy: Strategy,
                     seed: int = 42,
                     initial_capital: float = 100_000,
                     war_end_date: str = None,
-                    oil_baseline_price: float = None) -> ForecastPath:
+                    oil_baseline_price: float = None,
+                    oil_revert_trading_days: int = 60,
+                    oil_war_peak_price: float = None) -> ForecastPath:
     """
-    Monte Carlo projection of the next `forecast_days` trading days.
+    Monte Carlo projection of `forecast_days` trading days.
 
-    Calibrates daily return distributions from the most recent 20 real bars,
-    then runs `n_paths` independent paths forward through `strategy`.
-
-    War-end oil reversion (optional)
-    ──────────────────────────────────
-    When `war_end_date` and `oil_baseline_price` are both provided, oil
-    mean-reverts toward `oil_baseline_price` as the projected war-end
-    approaches.  The reversion uses a simple linear drift correction:
-
-      On each day d before war_end_date:
-        progress = d / total_days_to_end   (0 → 1)
-        pull     = (oil_baseline_price - curr_oil) * progress * daily_rate
-        new_oil  = curr_oil * (1 + random_return) + pull
-
-    By war_end_date, oil has reverted ~85% of the way back to baseline
-    (the remaining gap stays open to reflect real-world imperfection).
-    After war_end_date, oil follows a random walk around baseline.
-
-    Because oil feeds directly into the drawdown/oil-spike signals, this
-    reversion causes the strategy to gradually reduce its buy pressure as
-    the war premium unwinds — showing the realistic portfolio trajectory
-    if the conflict resolves on schedule.
+    Three-phase model when war_end_date is set:
+      Phase 1  today → war_end_date:
+        Oil rises linearly toward oil_war_peak_price (or its own drift).
+        Equity falls with its calibrated war-period drift.
+      Phase 2  war_end_date → +oil_revert_trading_days:
+        Oil falls linearly from its war-end price back to oil_baseline_price.
+        Equity RISES linearly — each path recovers at the same rate it fell
+        during phase 1, producing a clear visible upturn as oil normalises.
+      Phase 3  after phase 2:
+        Oil walks at low vol around baseline. Equity walks at normal vol.
     """
     import numpy as np
     import pandas as pd
@@ -492,93 +496,138 @@ def simulate_future(eq_series, oil_series, strategy: Strategy,
 
     eq  = eq_series.dropna()
     oil = oil_series.dropna()
-    combined = pd.DataFrame({"eq": eq, "oil": oil}).dropna()
-    recent   = combined.iloc[-20:]
 
+    recent   = pd.DataFrame({"eq": eq, "oil": oil}).dropna().iloc[-20:]
     eq_rets  = recent["eq"].pct_change().dropna().values
     oil_rets = recent["oil"].pct_change().dropna().values
 
     eq_mu,  eq_sig  = float(np.mean(eq_rets)),  max(float(np.std(eq_rets)),  0.001)
     oil_mu, oil_sig = float(np.mean(oil_rets)), max(float(np.std(oil_rets)), 0.001)
 
+    reversion_active = (war_end_date is not None
+                        and oil_baseline_price is not None
+                        and oil_baseline_price > 0)
+
+    # Equity-oil correlation (60-bar window to reduce noise)
+    all_eq_r  = eq.pct_change().dropna().values[-60:]
+    all_oil_r = oil.pct_change().dropna().values[-60:]
+    mlen      = min(len(all_eq_r), len(all_oil_r))
+    raw_corr  = float(np.corrcoef(all_eq_r[-mlen:], all_oil_r[-mlen:])[0, 1]) if mlen >= 10 else 0.0
+    if reversion_active:
+        eq_oil_corr = max(min(raw_corr, -0.30), -0.65)
+    else:
+        eq_oil_corr = max(-0.55, min(-0.05, raw_corr if raw_corr < -0.05 else -0.10))
+
+    cov  = np.array([[eq_sig**2, eq_oil_corr*eq_sig*oil_sig],
+                     [eq_oil_corr*eq_sig*oil_sig, oil_sig**2]])
+    chol = np.linalg.cholesky(cov)
+
     last_date    = pd.Timestamp(last_bar.date)
     future_dates = pd.bdate_range(last_date + pd.Timedelta(days=1), periods=forecast_days)
 
-    # Seed windows from real data
     seed_eq_win  = list(eq.iloc[-20:].values.astype(float))
     seed_oil_win = list(oil.iloc[-5:].values.astype(float))
 
-    # ── War-end reversion setup ───────────────────────────────────────────
-    # Compute how many forecast bars fall before the war_end_date, and
-    # the per-day reversion rate needed to reach ~85% closure by that date.
-    reversion_active = (war_end_date is not None and oil_baseline_price is not None
-                        and oil_baseline_price > 0)
-
-    days_to_end = None      # number of forecast bars until war end
-    daily_rate  = 0.0       # O-U mean-reversion strength per bar
+    # Phase boundaries
+    phase1_end = 0
+    phase2_end = 0
+    oil_start  = last_bar.oil_price
+    oil_peak_expected = oil_war_peak_price if (oil_war_peak_price and oil_war_peak_price > 0) else None
 
     if reversion_active:
-        end_ts = pd.Timestamp(war_end_date)
-        # Count how many of our forecast business days fall on or before end_ts
-        days_to_end = sum(1 for d in future_dates if d <= end_ts)
-        if days_to_end <= 0:
-            # war_end_date is already past — treat as immediate reversion
-            days_to_end = 1
-        # We want sum of (1 - daily_rate)^d for d=1..N ≈ 85% closure.
-        # Equivalent: solve (1-rate)^N = 0.15  →  rate = 1 - 0.15^(1/N)
-        TARGET_CLOSURE = 0.85
-        daily_rate = 1.0 - (1.0 - TARGET_CLOSURE) ** (1.0 / days_to_end)
+        end_ts     = pd.Timestamp(war_end_date)
+        phase1_end = sum(1 for d in future_dates if d < end_ts)
+        phase2_end = phase1_end + max(oil_revert_trading_days, 1)
+        if oil_peak_expected is None and phase1_end > 0:
+            oil_peak_expected = oil_start * ((1 + oil_mu) ** phase1_end)
 
-    # ── Monte Carlo paths ─────────────────────────────────────────────────
+    # Arrays
     all_portfolio = [[0.0] * forecast_days for _ in range(n_paths)]
     all_alloc     = [[0.0] * forecast_days for _ in range(n_paths)]
+    all_oil_p     = [[0.0] * forecast_days for _ in range(n_paths)]
+    all_eq_p      = [[0.0] * forecast_days for _ in range(n_paths)]
 
     for p in range(n_paths):
-        eq_win   = list(seed_eq_win)
-        oil_win  = list(seed_oil_win)
-        curr_eq  = last_bar.price
-        curr_oil = last_bar.oil_price
+        eq_win         = list(seed_eq_win)
+        oil_win        = list(seed_oil_win)
+        curr_eq        = last_bar.price
+        curr_oil       = oil_start
+        curr_portfolio = last_bar.portfolio_value
 
         strategy.reset()
-
         if isinstance(strategy, BuyOnlyOilWarStrategy):
             strategy.set_initial_capital(initial_capital)
             deployed = last_bar.allocation * initial_capital
             if curr_eq > 0 and deployed > 0:
                 strategy.record_purchase(deployed / curr_eq, deployed)
             curr_portfolio = last_bar.portfolio_value
-        else:
-            curr_portfolio = last_bar.portfolio_value
 
         prev3 = [float(eq.iloc[-3]), float(eq.iloc[-2]), float(eq.iloc[-1])]
 
+        # Per-path state: actual oil/equity at war-end (end of phase 1)
+        oil_warend_path = oil_peak_expected if oil_peak_expected else oil_start
+        eq_warend_path  = last_bar.price
+
         for d in range(forecast_days):
-            er   = float(rng.normal(eq_mu,  eq_sig))
-            oilr = float(rng.normal(oil_mu, oil_sig))
+            z      = rng.standard_normal(2)
+            corr_r = chol @ z
 
-            # ── equity step (always pure random walk) ─────────────────────
-            new_eq = curr_eq * (1.0 + er)
+            # ── EQUITY ────────────────────────────────────────────────────
+            if not reversion_active or d < phase1_end:
+                # Phase 1 / no reversion: war-period negative drift
+                er     = eq_mu + float(corr_r[0])
+                new_eq = max(curr_eq * (1.0 + er), 0.01)
+                if reversion_active and d == phase1_end - 1:
+                    eq_warend_path = new_eq   # record per-path equity at war-end
 
-            # ── oil step with optional war-end reversion ──────────────────
-            new_oil_rw = curr_oil * (1.0 + oilr)   # pure random walk component
+            elif d < phase2_end:
+                # Phase 2: equity rises linearly from its war-end price.
+                # Target = war-end price recovered at |eq_mu|/day for total_steps.
+                # Noise scaled to 20% so the upward signal is clearly visible.
+                steps_done  = d - phase1_end + 1
+                total_steps = max(phase2_end - phase1_end, 1)
+                target      = eq_warend_path + (eq_warend_path * ((1+abs(eq_mu))**total_steps)
+                                                - eq_warend_path) * (steps_done / total_steps)
+                base_er     = (target / max(curr_eq, 0.01)) - 1.0
+                er          = base_er + float(corr_r[0]) * 0.20
+                new_eq      = max(curr_eq * (1.0 + er), 0.01)
 
-            if reversion_active and d < days_to_end:
-                # Pull toward baseline: exponential mean-reversion
-                gap      = oil_baseline_price - curr_oil
-                new_oil  = new_oil_rw + gap * daily_rate
-            elif reversion_active and d >= days_to_end:
-                # War ended — random walk anchored around baseline
-                new_oil  = oil_baseline_price * (1.0 + oilr * 0.6)
             else:
-                new_oil = new_oil_rw
+                # Phase 3: neutral drift (war headwind gone), normal vol
+                er     = float(corr_r[0])
+                new_eq = max(curr_eq * (1.0 + er), 0.01)
 
-            # Ensure oil stays positive
+            # ── OIL ───────────────────────────────────────────────────────
+            if not reversion_active:
+                new_oil = curr_oil * (1.0 + oil_mu + float(corr_r[1]) * oil_sig / oil_sig)
+
+            elif d < phase1_end:
+                # Phase 1: oil rises linearly toward oil_warend_path
+                step_frac = (d + 1) / max(phase1_end, 1)
+                trend     = oil_start + (oil_warend_path - oil_start) * step_frac
+                noise_amp = oil_sig * oil_start * (1.0 - step_frac * 0.5)
+                new_oil   = trend + noise_amp * float(corr_r[1])
+                if d == phase1_end - 1:
+                    oil_warend_path = new_oil   # freeze per-path oil at war-end
+
+            elif d < phase2_end:
+                # Phase 2: oil falls linearly from war-end price to baseline
+                steps_done  = d - phase1_end + 1
+                total_steps = max(phase2_end - phase1_end, 1)
+                step_frac   = steps_done / total_steps
+                trend       = oil_warend_path + (oil_baseline_price - oil_warend_path) * step_frac
+                noise_amp   = oil_sig * oil_warend_path * (1.0 - step_frac)
+                new_oil     = trend + noise_amp * float(corr_r[1])
+
+            else:
+                # Phase 3: low-vol walk around baseline
+                new_oil = oil_baseline_price * (1.0 + float(corr_r[1]) * oil_sig * 0.5)
+
             new_oil = max(new_oil, 1.0)
 
-            eq_win.append(new_eq)
-            if len(eq_win) > 20: eq_win.pop(0)
-            oil_win.append(new_oil)
-            if len(oil_win) > 5:  oil_win.pop(0)
+            # ── Rolling windows & signals ──────────────────────────────────
+            eq_win.append(new_eq);  eq_win  = eq_win[-20:]
+            oil_win.append(new_oil); oil_win = oil_win[-5:]
 
             H   = max(eq_win)
             D   = (H - new_eq) / H if H > 0 else 0.0
@@ -586,19 +635,17 @@ def simulate_future(eq_series, oil_series, strategy: Strategy,
             spk = (new_oil - O5) / O5 if O5 > 0 else 0.0
             P3  = prev3[0] if len(prev3) >= 3 else curr_eq
             r3  = (new_eq / P3) - 1 if P3 > 0 else 0.0
-
             sigs = Signals(price=new_eq, high_20d=H, drawdown=D,
                            return_3d=r3, oil_price=new_oil, oil_5d_avg=O5, oil_spike=spk)
 
+            # ── Portfolio ─────────────────────────────────────────────────
             if isinstance(strategy, BuyOnlyOilWarStrategy):
                 inc   = strategy.next_allocation(sigs)
                 spend = min(inc * initial_capital,
                             max(initial_capital - strategy.cash_deployed, 0.0))
                 if spend > 0 and new_eq > 0:
                     strategy.record_purchase(spend / new_eq, spend)
-                shares_val     = strategy.unrealized_value(new_eq)
-                cash_rem       = initial_capital - strategy.cash_deployed
-                curr_portfolio = shares_val + cash_rem
+                curr_portfolio = strategy.unrealized_value(new_eq) + (initial_capital - strategy.cash_deployed)
                 alloc_val      = strategy.cash_deployed / initial_capital
             else:
                 alloc_val      = strategy.next_allocation(sigs)
@@ -606,21 +653,27 @@ def simulate_future(eq_series, oil_series, strategy: Strategy,
 
             all_portfolio[p][d] = curr_portfolio
             all_alloc[p][d]     = alloc_val
+            all_oil_p[p][d]     = new_oil
+            all_eq_p[p][d]      = new_eq
 
-            prev3.append(new_eq)
-            if len(prev3) > 3: prev3.pop(0)
+            prev3.append(new_eq);  prev3 = prev3[-3:]
             curr_eq  = new_eq
             curr_oil = new_oil
 
-    pf_arr = np.array(all_portfolio)
-    al_arr = np.array(all_alloc)
+    pf  = np.array(all_portfolio)
+    al  = np.array(all_alloc)
+    oilp = np.array(all_oil_p)
+    eqp  = np.array(all_eq_p)
 
     return ForecastPath(
         dates        = [d.strftime("%Y-%m-%d") for d in future_dates],
-        p10          = [round(float(v), 2) for v in np.percentile(pf_arr, 10, axis=0)],
-        p25          = [round(float(v), 2) for v in np.percentile(pf_arr, 25, axis=0)],
-        p50          = [round(float(v), 2) for v in np.percentile(pf_arr, 50, axis=0)],
-        p75          = [round(float(v), 2) for v in np.percentile(pf_arr, 75, axis=0)],
-        p90          = [round(float(v), 2) for v in np.percentile(pf_arr, 90, axis=0)],
-        alloc_median = [round(float(v), 4) for v in np.percentile(al_arr, 50, axis=0)],
+        p10          = [round(float(v), 2) for v in np.percentile(pf,   10, axis=0)],
+        p25          = [round(float(v), 2) for v in np.percentile(pf,   25, axis=0)],
+        p50          = [round(float(v), 2) for v in np.percentile(pf,   50, axis=0)],
+        p75          = [round(float(v), 2) for v in np.percentile(pf,   75, axis=0)],
+        p90          = [round(float(v), 2) for v in np.percentile(pf,   90, axis=0)],
+        alloc_median = [round(float(v), 4) for v in np.percentile(al,   50, axis=0)],
+        oil_median   = [round(float(v), 2) for v in np.percentile(oilp, 50, axis=0)],
+        eq_median    = [round(float(v), 2) for v in np.percentile(eqp,  50, axis=0)],
     )
+

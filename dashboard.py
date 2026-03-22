@@ -59,15 +59,17 @@ M_HISTORY_DAYS  = 60          # trading days of active strategy history
 PRE_HISTORY_DAYS = 60         # trading days of context before strategy start
 
 # Projected war-end date.  Must be in the future (in the forecast zone).
-# When set, oil reverts toward its pre-war baseline price by this date,
-# showing how the strategy would perform as the conflict unwinds.
-# Set to None to use a plain random-walk forecast with no reversion.
-WAR_END_DATE = "2026-5-1"           # e.g. "2025-09-01"  or  None
+# Oil rises from today's level toward OIL_WAR_PEAK_MULT × current price
+# by war_end_date, then reverts to pre-war baseline over OIL_REVERT_DAYS.
+# Set WAR_END_DATE to None for a plain random-walk forecast.
+WAR_END_DATE      = "2026-5-1"   # e.g. "2025-09-01"  or  None
+OIL_WAR_PEAK_MULT = 1.30   # oil rises to 130% of current price by war end
+OIL_REVERT_DAYS   = 60     # trading days for oil to return to baseline after war ends
 
 # Monte Carlo forecast settings.
-# N_FORECAST is automatically extended to reach WAR_END_DATE when set.
-N_FORECAST = 30               # minimum trading days to project forward
-N_PATHS    = 500              # simulation paths (higher = smoother bands)
+# N_FORECAST is automatically extended to reach WAR_END_DATE + OIL_REVERT_DAYS.
+N_FORECAST = 30            # minimum trading days to project forward
+N_PATHS    = 500           # simulation paths (higher = smoother bands)
 
 # ─────────────────────────────────────────────────────────────────────────
 # Derived: how far back to fetch data
@@ -148,13 +150,12 @@ if WAR_END_DATE:
         print(f"  WARNING: WAR_END_DATE {WAR_END_DATE} is in the past — ignoring.", flush=True)
         effective_war_end = None
     else:
-        # Convert calendar days to approximate trading days (÷ 1.4 for weekends)
+        # Trading days to reach war_end_date + full OIL_REVERT_DAYS window + 10-day tail
         trading_days_to_end = max(int(calendar_days / 1.4), 1)
-        effective_forecast   = max(N_FORECAST, trading_days_to_end + 10)
-        effective_war_end    = WAR_END_DATE
-        print(f"  War end date: {WAR_END_DATE}  "
-              f"(≈{trading_days_to_end} trading days → forecast extended to {effective_forecast}d)",
-              flush=True)
+        effective_forecast  = max(N_FORECAST, trading_days_to_end + OIL_REVERT_DAYS + 10)
+        effective_war_end   = WAR_END_DATE
+        print(f"  War end date: {WAR_END_DATE}  oil reverts over {OIL_REVERT_DAYS}d  "
+              f"→ forecast extended to {effective_forecast}d", flush=True)
 else:
     effective_war_end = None
 
@@ -225,15 +226,18 @@ for strat in REGISTRY:
                 else type(strat)())
 
     fc = simulate_future(
-        eq_series          = eq,
-        oil_series         = oil,
-        strategy           = fc_strat,
-        last_bar           = bars[-1],
-        forecast_days      = effective_forecast,
-        n_paths            = N_PATHS,
-        initial_capital    = INITIAL_CAPITAL,
-        war_end_date       = effective_war_end,
-        oil_baseline_price = oil_baseline,
+        eq_series               = eq,
+        oil_series              = oil,
+        strategy                = fc_strat,
+        last_bar                = bars[-1],
+        forecast_days           = effective_forecast,
+        n_paths                 = N_PATHS,
+        initial_capital         = INITIAL_CAPITAL,
+        war_end_date            = effective_war_end,
+        oil_baseline_price      = oil_baseline,
+        oil_war_peak_price      = round(bars[-1].oil_price * OIL_WAR_PEAK_MULT, 2)
+                                  if effective_war_end else None,
+        oil_revert_trading_days = OIL_REVERT_DAYS,
     )
 
     strategies_output.append({
@@ -281,8 +285,11 @@ output = {
     "pre_history_days":   PRE_HISTORY_DAYS,
     "forecast_days":      effective_forecast,
     "initial_capital":    INITIAL_CAPITAL,
-    "war_end_date":       effective_war_end,          # None or "YYYY-MM-DD"
-    "oil_baseline":       round(oil_baseline, 2),     # pre-war oil target
+    "war_end_date":       effective_war_end,
+    "oil_baseline":       round(oil_baseline, 2),
+    "oil_war_peak":       round(bars[-1].oil_price * OIL_WAR_PEAK_MULT, 2)
+                          if effective_war_end else None,
+    "oil_revert_days":    OIL_REVERT_DAYS,
     # Live point-in-time snapshot (OilWar Active)
     "live": {
         "date":       datetime.today().strftime("%Y-%m-%d"),
