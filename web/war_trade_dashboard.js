@@ -43,7 +43,7 @@ function equityOpts(color, todayStr) {
   return {
     responsive: true, maintainAspectRatio: false, animation: { duration: 400 },
     plugins: {
-      legend: { labels: { color: '#3d4a5c', font: { family: "'DM Mono'" }, boxWidth: 12 } },
+      legend: { labels: { color: '#888f9a', font: { family: "'DM Mono'" }, boxWidth: 12 } },
       tooltip: {
         backgroundColor: '#141820', borderColor: '#1e242f', borderWidth: 1,
         titleColor: '#e2eaf6', bodyColor: '#b8c4d4',
@@ -53,9 +53,9 @@ function equityOpts(color, todayStr) {
     scales: {
       x: { type: 'time', time: { unit: 'week' },
            grid: { color: '#0e1115' },
-           ticks: { color: '#283040', font: { family: "'DM Mono'", size: 9 } } },
+           ticks: { color: '#888f9a', font: { family: "'DM Mono'", size: 9 } } },
       y: { grid: { color: '#141820' },
-           ticks: { color: '#283040', font: { family: "'DM Mono'", size: 9 },
+           ticks: { color: '#888f9a', font: { family: "'DM Mono'", size: 9 },
                     callback: v => '$' + (v / 1000).toFixed(0) + 'k' } }
     }
   };
@@ -70,9 +70,9 @@ function allocOpts() {
     scales: {
       x: { type: 'time', time: { unit: 'week' },
            grid: { color: '#0e1115' },
-           ticks: { color: '#283040', font: { family: "'DM Mono'", size: 9 } } },
+           ticks: { color: '#888f9a', font: { family: "'DM Mono'", size: 9 } } },
       y: { min: 0, max: 1, grid: { color: '#141820' },
-           ticks: { color: '#283040', font: { family: "'DM Mono'", size: 9 },
+           ticks: { color: '#888f9a', font: { family: "'DM Mono'", size: 9 },
                     callback: v => (v * 100).toFixed(0) + '%' } }
     }
   };
@@ -291,7 +291,7 @@ function buildPriceChart(canvasId, strat, stratStartStr, todayStr) {
     plugins: {
       legend: {
         display: true,
-        labels: { color: '#3d4a5c', font: { family: "'DM Mono'" }, boxWidth: 10,
+        labels: { color: '#888f9a', font: { family: "'DM Mono'" }, boxWidth: 10,
                   filter: item => !item.text.startsWith('_') }
       },
       tooltip: {
@@ -309,15 +309,15 @@ function buildPriceChart(canvasId, strat, stratStartStr, todayStr) {
     scales: {
       x: { type: 'time', time: { unit: 'week' },
            grid: { color: '#0e1115' },
-           ticks: { color: '#283040', font: { family: "'DM Mono'", size: 9 } } },
+           ticks: { color: '#888f9a', font: { family: "'DM Mono'", size: 9 } } },
       y: { position: 'left', grid: { color: '#141820' },
            title: { display: true, text: 'Equity (indexed, start=100)',
                     color: '#3d4a5c', font: { family: "'DM Mono'", size: 8 } },
-           ticks: { color: '#283040', font: { family: "'DM Mono'", size: 9 } } },
+           ticks: { color: '#888f9a', font: { family: "'DM Mono'", size: 9 } } },
       y2: { position: 'right', grid: { drawOnChartArea: false },
             title: { display: true, text: 'Oil price ($)',
                      color: '#3d4a5c', font: { family: "'DM Mono'", size: 8 } },
-            ticks: { color: '#283040', font: { family: "'DM Mono'", size: 9 },
+            ticks: { color: '#888f9a', font: { family: "'DM Mono'", size: 9 },
                      callback: v => '$' + v.toFixed(0) } }
     }
   };

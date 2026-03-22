@@ -11,7 +11,7 @@
 :root{
   --bg:#0a0c0e;--bg2:#111417;--bg3:#181c20;
   --border:#242830;--dim:#2e333b;
-  --text:#c8cfd8;--muted:#4a5260;
+  --text:#c8cfd8;--muted:#888f9a;
   --accent:#e8a020;--green:#3ecf6a;--red:#e84040;--yellow:#e8c020;
   --oil:#7ddcf0;
   --mono:'Share Tech Mono',monospace;--sans:'Barlow Condensed',sans-serif;
@@ -463,9 +463,9 @@ function baseChart() {
     },
     scales:{
       x:{type:'time',time:{unit:'month'},grid:{color:'#181c20'},
-         ticks:{color:'#3a4048',font:{family:"'Share Tech Mono'",size:10}}},
+         ticks:{color:'#888f9a',font:{family:"'Share Tech Mono'",size:10}}},
       y:{grid:{color:'#1c2028'},
-         ticks:{color:'#3a4048',font:{family:"'Share Tech Mono'",size:10},callback:v=>'$'+(v/1000).toFixed(0)+'k'}}
+         ticks:{color:'#888f9a',font:{family:"'Share Tech Mono'",size:10},callback:v=>'$'+(v/1000).toFixed(0)+'k'}}
     }
   };
 }
@@ -478,9 +478,9 @@ function pctChart() {
                callbacks:{label:ctx=>' '+(ctx.parsed.y*100).toFixed(0)+'%'}}},
     scales:{
       x:{type:'time',time:{unit:'month'},grid:{color:'#181c20'},
-         ticks:{color:'#3a4048',font:{family:"'Share Tech Mono'",size:10}}},
+         ticks:{color:'#888f9a',font:{family:"'Share Tech Mono'",size:10}}},
       y:{min:0,max:1,grid:{color:'#1c2028'},
-         ticks:{color:'#3a4048',font:{family:"'Share Tech Mono'",size:10},callback:v=>(v*100).toFixed(0)+'%'}}
+         ticks:{color:'#888f9a',font:{family:"'Share Tech Mono'",size:10},callback:v=>(v*100).toFixed(0)+'%'}}
     }
   };
 }
@@ -507,7 +507,7 @@ function priceChart(eventColor) {
     scales:{
       x:{
         type:'time',time:{unit:'month'},grid:{color:'#181c20'},
-        ticks:{color:'#3a4048',font:{family:"'Share Tech Mono'",size:10}}
+        ticks:{color:'#888f9a',font:{family:"'Share Tech Mono'",size:10}}
       },
       yStock:{
         type:'linear', position:'left',
@@ -519,7 +519,7 @@ function priceChart(eventColor) {
       yOil:{
         type:'linear', position:'right',
         grid:{drawOnChartArea:false},
-        ticks:{color:'#7ddcf0',
+        ticks:{color:'#888f9a',
                font:{family:"'Share Tech Mono'",size:10},
                callback: v => v.toFixed(0)}
       }
