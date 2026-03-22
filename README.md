@@ -21,7 +21,7 @@ The system runs three strategies side-by-side so you can compare their behaviour
 ## File Structure
 
 ```
-war-trade-simulator/
+trade-strategy-dashboard/
 │
 ├── strategy.py              # Strategy classes, signal engine, history replay, Monte Carlo forecast
 ├── dashboard.py             # Daily runner — fetches prices, generates signal_output.json
