@@ -220,6 +220,20 @@ class HistoricalBar:
 
 
 @dataclass
+class MarketBar:
+    """
+    One raw trading day of market data — no portfolio accounting.
+    Used for the pre-strategy context window so the chart shows what
+    the market was doing before the strategy was activated.
+    """
+    date:      str
+    price:     float
+    oil_price: float
+    drawdown:  float   # 20-day drawdown at that point
+    oil_spike: float   # 5-day oil spike at that point
+
+
+@dataclass
 class ForecastPath:
     """Percentile bands from Monte Carlo projection."""
     dates:        list   # ISO date strings
@@ -232,34 +246,103 @@ class ForecastPath:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# get_market_context
+# ═══════════════════════════════════════════════════════════════════════════
+
+def get_market_context(eq_series, oil_series,
+                       strategy_start_date: str,
+                       pre_days: int = 60) -> list:
+    """
+    Return `pre_days` trading bars of raw market data that end just before
+    `strategy_start_date`.  No portfolio accounting — just price, drawdown,
+    and oil spike so the chart can show the market backdrop before the
+    strategy was switched on.
+
+    Requires ≥20 bars before the context window in eq_series/oil_series
+    to compute the rolling signals properly.
+    """
+    import pandas as pd
+
+    eq  = eq_series.dropna()
+    oil = oil_series.dropna()
+    combined = pd.DataFrame({"eq": eq, "oil": oil}).dropna()
+    if len(combined) < 22:
+        return []
+
+    start_ts = pd.Timestamp(strategy_start_date)
+
+    # All bars strictly before the strategy start
+    pre = combined[combined.index < start_ts]
+    if len(pre) < 1:
+        return []
+
+    # We need 20 warm-up bars before our context window too
+    total_needed = 20 + pre_days
+    if len(pre) < total_needed:
+        pre_days = max(1, len(pre) - 20)
+        total_needed = 20 + pre_days
+
+    df = pre.iloc[-total_needed:]
+    bars: list = []
+
+    for i in range(len(df)):
+        if i < 20:
+            continue
+
+        P   = float(df["eq"].iat[i])
+        H   = float(df["eq"].iloc[i-20:i].max())
+        D   = (H - P) / H if H > 0 else 0.0
+        O   = float(df["oil"].iat[i])
+        O5  = float(df["oil"].iloc[i-5:i].mean())
+        spk = (O - O5) / O5 if O5 > 0 else 0.0
+
+        bars.append(MarketBar(
+            date      = df.index[i].strftime("%Y-%m-%d"),
+            price     = round(P, 2),
+            oil_price = round(O, 2),
+            drawdown  = round(D, 4),
+            oil_spike = round(spk, 4),
+        ))
+
+    return bars
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # run_history
 # ═══════════════════════════════════════════════════════════════════════════
 
 def run_history(eq_series, oil_series, strategy: Strategy,
                 initial_capital: float = 100_000,
-                history_days: int = 60) -> list:
+                history_days: int = 60,
+                start_date: str = None) -> list:
     """
-    Replay the last `history_days` trading bars through `strategy`.
+    Replay trading bars through `strategy`, producing a HistoricalBar per day.
 
-    Requires ≥20 warm-up bars before the history window in eq_series/oil_series.
+    Two modes
+    ─────────
+    start_date provided (YYYY-MM-DD string):
+        Run from `start_date` through the end of eq_series.  This anchors
+        the strategy to a specific calendar date you chose to start it.
+
+    start_date=None (default):
+        Run the last `history_days` trading bars.  Useful when you just want
+        to see the recent past without committing to a specific start date.
+
+    In both modes, ≥20 bars of warm-up data before the active window are
+    required in eq_series/oil_series to compute rolling signals correctly.
 
     Portfolio accounting per strategy type
     ───────────────────────────────────────
     OilWar Active / Buy & Hold (daily rebalancing):
-      The model rebalances to `alloc` at each close, so at any point:
-        shares_value   = alloc × portfolio_value
-        cash_remaining = (1 − alloc) × portfolio_value
-      portfolio_value evolves as: prev × (1 + alloc × daily_equity_return)
+      shares_value   = alloc × portfolio_value
+      cash_remaining = (1 − alloc) × portfolio_value
 
     OilWar Buy-Only (accumulate; never sell):
-      Purchases are explicit: cash is spent once and shares accumulate.
-        shares_value   = shares_held × current_price
-        cash_remaining = initial_capital − total_cash_deployed
-        portfolio_value = shares_value + cash_remaining
+      shares_value   = shares_held × current_price
+      cash_remaining = initial_capital − total_cash_deployed
+      portfolio_value = shares_value + cash_remaining
 
-    Both start with portfolio_value = initial_capital at bar 0 of history,
-    because warm-up bars are processed but their state is discarded — the
-    portfolio clock starts fresh at the first bar of the history window.
+    The portfolio clock starts at initial_capital on the first active bar.
     """
     import pandas as pd
 
@@ -271,29 +354,47 @@ def run_history(eq_series, oil_series, strategy: Strategy,
 
     combined["eq_ret"] = combined["eq"].pct_change().fillna(0)
 
-    # Trim to warm-up + history window
-    total = 20 + history_days
-    if len(combined) < total:
-        history_days = max(1, len(combined) - 20)
+    if start_date is not None:
+        # Anchor mode: run from start_date to end of series.
+        # Include 20 warm-up bars before start_date for rolling signals.
+        start_ts   = pd.Timestamp(start_date)
+        pre_mask   = combined.index < start_ts
+        active_mask = combined.index >= start_ts
+
+        pre_df    = combined[pre_mask]
+        active_df = combined[active_mask]
+
+        if len(active_df) == 0:
+            return []   # start_date is in the future
+
+        # Take up to 20 warm-up bars immediately before start_date
+        warmup_df = pre_df.iloc[-20:] if len(pre_df) >= 20 else pre_df
+        df        = pd.concat([warmup_df, active_df])
+        warmup_n  = len(warmup_df)   # how many rows are warm-up (not history)
+    else:
+        # Rolling mode: last history_days bars with 20-bar warm-up prefix
         total = 20 + history_days
-    df = combined.iloc[-total:]
+        if len(combined) < total:
+            history_days = max(1, len(combined) - 20)
+            total = 20 + history_days
+        df       = combined.iloc[-total:]
+        warmup_n = 20   # first 20 rows are always warm-up in rolling mode
 
     strategy.reset()
     if isinstance(strategy, BuyOnlyOilWarStrategy):
         strategy.set_initial_capital(initial_capital)
 
     # portfolio_value tracks the total (cash + shares) for rebalancing strategies.
-    # It is reset to initial_capital at the first history bar (i == 20) so warm-up
-    # returns don't bleed into the displayed history.
+    # Starts at initial_capital; the reset happens at the first active bar (i == warmup_n).
     portfolio_value = initial_capital
     bars = []
 
     for i in range(len(df)):
-        if i < 20:
+        if i < warmup_n:
             continue
 
-        # Reset portfolio to initial_capital at the very first history bar
-        if i == 20:
+        # Reset portfolio to initial_capital at the very first active bar
+        if i == warmup_n:
             portfolio_value = initial_capital
 
         P   = float(df["eq"].iat[i])
