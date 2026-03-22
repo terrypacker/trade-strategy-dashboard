@@ -231,15 +231,7 @@ input[type=file] { display: none; }
   transition: opacity .1s;
 }
 .tbar:hover { opacity: .75; }
-.tbar .tb-tip {
-  display: none; position: absolute; bottom: calc(100% + 6px); left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg4); border: 1px solid var(--border);
-  padding: 5px 9px; white-space: nowrap;
-  font-family: var(--mono); font-size: .58rem; color: var(--hi);
-  pointer-events: none; z-index: 100;
-}
-.tbar:hover .tb-tip { display: block; }
+/* .tb-tip now rendered as a body-fixed element by JS (_attachTipEvents) */
 .today-line {
   flex-shrink: 0; width: 2px; background: rgba(232,160,32,.8);
   height: 36px; position: relative;

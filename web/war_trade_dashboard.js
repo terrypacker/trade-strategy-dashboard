@@ -441,6 +441,57 @@ function buildAllocChart(canvasId, strat, stratStartStr, todayStr) {
   });
 }
 
+// ── FLOATING TOOLTIP (body-level — escapes overflow:auto clipping) ────────
+let _tlTip = null;
+function _getTip() {
+  if (!_tlTip) {
+    _tlTip = document.createElement('div');
+    _tlTip.id = 'tl-float-tip';
+    Object.assign(_tlTip.style, {
+      position:      'fixed',
+      display:       'none',
+      pointerEvents: 'none',
+      zIndex:        '99999',
+      background:    'var(--bg4)',
+      border:        '1px solid var(--border)',
+      padding:       '5px 9px',
+      whiteSpace:    'nowrap',
+      fontFamily:    "'DM Mono', monospace",
+      fontSize:      '.58rem',
+      color:         'var(--hi)',
+      lineHeight:    '1.6',
+    });
+    document.body.appendChild(_tlTip);
+  }
+  return _tlTip;
+}
+
+function _attachTipEvents(bar, html) {
+  bar.addEventListener('mouseenter', e => {
+    const tip = _getTip();
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+    _positionTip(e);
+  });
+  bar.addEventListener('mousemove', _positionTip);
+  bar.addEventListener('mouseleave', () => {
+    _getTip().style.display = 'none';
+  });
+}
+
+function _positionTip(e) {
+  const tip = _getTip();
+  const pad = 10;
+  const tw  = tip.offsetWidth;
+  const th  = tip.offsetHeight;
+  let   x   = e.clientX + pad;
+  let   y   = e.clientY - th - pad;
+  if (x + tw > window.innerWidth  - pad) x = e.clientX - tw - pad;
+  if (y < pad)                           y = e.clientY + pad;
+  tip.style.left = x + 'px';
+  tip.style.top  = y + 'px';
+}
+
 // ── BUILD TIMELINE ────────────────────────────────────────────────────────
 function buildTimeline(containerId, strat) {
   const el = document.getElementById(containerId);
@@ -451,7 +502,9 @@ function buildTimeline(containerId, strat) {
     const bar = document.createElement('div');
     bar.className = 'tbar';
     bar.style.background = signalColor(b.allocation);
-    bar.innerHTML = `<div class="tb-tip">${b.date}<br>${b.signal}<br>${(b.allocation*100).toFixed(0)}%</div>`;
+    _attachTipEvents(bar,
+      `${b.date}<br>${b.signal}<br>${(b.allocation*100).toFixed(0)}% allocated`
+    );
     el.appendChild(bar);
   });
 
@@ -463,7 +516,9 @@ function buildTimeline(containerId, strat) {
     const bar = document.createElement('div');
     bar.className = 'tbar forecast';
     bar.style.background = signalColor(strat.forecast.alloc_median[i]);
-    bar.innerHTML = `<div class="tb-tip">${d}<br>Forecast median<br>${(strat.forecast.alloc_median[i]*100).toFixed(0)}%</div>`;
+    _attachTipEvents(bar,
+      `${d}<br>Forecast median<br>${(strat.forecast.alloc_median[i]*100).toFixed(0)}% allocated`
+    );
     el.appendChild(bar);
   });
 }
