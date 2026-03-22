@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>War Trade Backtest Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700;900&display=swap');
+:root{
+  --bg:#0a0c0e;--bg2:#111417;--bg3:#181c20;
+  --border:#242830;--dim:#2e333b;
+  --text:#c8cfd8;--muted:#4a5260;
+  --accent:#e8a020;--green:#3ecf6a;--red:#e84040;--yellow:#e8c020;
+  --oil:#7ddcf0;
+  --mono:'Share Tech Mono',monospace;--sans:'Barlow Condensed',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh}
+body{padding:28px 24px}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:repeating-linear-gradient(0deg,transparent,transparent 39px,var(--border) 39px,var(--border) 40px),
+    repeating-linear-gradient(90deg,transparent,transparent 39px,var(--border) 39px,var(--border) 40px);
+  background-size:40px 40px;opacity:.5}
+.wrap{max-width:1280px;margin:0 auto;position:relative;z-index:1}
+
+.header{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;
+  border-bottom:2px solid var(--accent);padding-bottom:14px;margin-bottom:28px}
+.header h1{font-weight:900;font-size:2.4rem;letter-spacing:.06em;text-transform:uppercase;color:#fff;line-height:1}
+.header h1 span{color:var(--accent)}
+.header .sub{font-family:var(--mono);font-size:.68rem;color:var(--muted);letter-spacing:.14em;margin-top:4px}
+.ts{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+.badges{display:flex;gap:8px;margin-top:6px;justify-content:flex-end}
+.badge{background:var(--accent);color:#000;font-weight:700;font-size:.8rem;padding:2px 10px;letter-spacing:.08em}
+.badge.oil{background:var(--bg3);color:var(--text);border:1px solid var(--dim)}
+
+.legend-strip{display:flex;flex-wrap:wrap;gap:20px;margin-bottom:22px;
+  background:var(--bg2);border:1px solid var(--border);padding:12px 18px}
+.legend-item{display:flex;align-items:center;gap:8px;font-size:.88rem;font-weight:600;letter-spacing:.04em}
+.leg-line{width:28px;height:3px;border-radius:2px}
+.leg-line.dashed{background:repeating-linear-gradient(90deg,var(--c) 0,var(--c) 6px,transparent 6px,transparent 10px)}
+.leg-desc{font-family:var(--mono);font-size:.6rem;color:var(--muted);margin-top:2px;max-width:220px}
+
+.summary-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:26px}
+.kpi{background:var(--bg2);border:1px solid var(--border);padding:14px 16px;border-top:2px solid var(--dim)}
+.kpi.hi{border-top-color:var(--accent)}
+.kpi-label{font-family:var(--mono);font-size:.6rem;letter-spacing:.16em;color:var(--muted);margin-bottom:8px}
+.kpi-val{font-family:var(--mono);font-size:1.5rem;color:#fff}
+.kpi-val.pos{color:var(--green)}.kpi-val.neg{color:var(--red)}
+.kpi-sub{font-size:.75rem;color:var(--muted);margin-top:4px}
+
+.tab-row{display:flex;gap:0;flex-wrap:wrap;border-bottom:1px solid var(--border)}
+.tab{font-family:var(--sans);font-weight:600;font-size:.9rem;letter-spacing:.04em;
+  padding:9px 18px;cursor:pointer;border:1px solid transparent;border-bottom:none;
+  color:var(--muted);background:transparent;transition:all .15s;text-transform:uppercase}
+.tab:hover{color:var(--text)}
+.tab.active{background:var(--bg2);border-color:var(--border);color:#fff;position:relative;top:1px}
+.tab-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle}
+
+.panel{display:none;background:var(--bg2);border:1px solid var(--border);border-top:none;padding:22px}
+.panel.active{display:block}
+
+/* Top row: 2 allocation/deployment charts side by side */
+.chart-grid-top{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+@media(max-width:860px){.chart-grid-top{grid-template-columns:1fr}}
+
+/* Full-width rows for equity curves and price chart */
+.chart-grid-wide{display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px}
+
+.chart-box{background:var(--bg3);border:1px solid var(--dim);padding:14px}
+.chart-title{font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;color:var(--muted);margin-bottom:10px;text-transform:uppercase}
+.chart-box canvas{max-height:220px}
+.chart-box.tall canvas{max-height:180px}
+
+/* Price chart axis labels */
+.price-chart-legend{display:flex;gap:20px;margin-bottom:8px;align-items:center}
+.pcl-item{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:.62rem;color:var(--muted)}
+.pcl-swatch{width:20px;height:2px;border-radius:1px}
+
+.strat-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:.82rem;margin-bottom:14px}
+.strat-table th{text-align:left;padding:6px 10px 8px;font-size:.6rem;letter-spacing:.14em;
+  color:var(--muted);border-bottom:1px solid var(--dim)}
+.strat-table td{padding:9px 10px;border-bottom:1px solid var(--bg3)}
+.strat-table tr:last-child td{border-bottom:none}
+.strat-table tr:hover td{background:rgba(255,255,255,.02)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:8px;vertical-align:middle}
+
+.unreal-box{background:rgba(62,207,106,.06);border:1px solid rgba(62,207,106,.22);
+  padding:14px 18px;margin-bottom:14px}
+.unreal-title{font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;color:#3ecf6a;
+  margin-bottom:10px;text-transform:uppercase}
+.unreal-row{display:flex;flex-wrap:wrap;gap:0}
+.us{flex:1;min-width:120px;padding:8px 14px;border-right:1px solid rgba(62,207,106,.12)}
+.us:last-child{border-right:none}
+.us-label{font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;color:var(--muted);margin-bottom:4px}
+.us-val{font-family:var(--mono);font-size:1.05rem;color:#fff}
+.us-val.pos{color:var(--green)}.us-val.neg{color:var(--red)}
+.us-note{font-size:.72rem;color:var(--muted);line-height:1.4}
+
+.ov-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:.8rem}
+.ov-table th{text-align:left;padding:8px 10px;font-size:.6rem;letter-spacing:.14em;
+  color:var(--muted);border-bottom:1px solid var(--dim)}
+.ov-table td{padding:9px 10px;border-bottom:1px solid var(--bg3)}
+.ov-table tr:last-child td{border-bottom:none}
+.ov-table tr:hover td{background:rgba(255,255,255,.02)}
+.pos-val{color:var(--green)}.neg-val{color:var(--red)}.neu-val{color:var(--text)}
+
+/* ── Help drawer ─────────────────────────────────────────────────────── */
+.help-btn{position:fixed;bottom:28px;right:28px;z-index:900;
+  width:40px;height:40px;border-radius:50%;border:1px solid var(--accent);
+  background:var(--bg2);color:var(--accent);font-family:var(--mono);font-size:1rem;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 0 0 rgba(232,160,32,.4);
+  transition:background .15s,box-shadow .15s}
+.help-btn:hover{background:var(--accent);color:#000;box-shadow:0 0 16px 4px rgba(232,160,32,.25)}
+
+.help-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:910;
+  opacity:0;pointer-events:none;transition:opacity .25s}
+.help-overlay.open{opacity:1;pointer-events:all}
+
+.help-drawer{position:fixed;top:0;right:0;height:100%;width:420px;max-width:95vw;
+  z-index:920;background:var(--bg2);border-left:1px solid var(--border);
+  display:flex;flex-direction:column;
+  transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1)}
+.help-drawer.open{transform:translateX(0)}
+
+.help-head{display:flex;align-items:center;justify-content:space-between;
+  padding:18px 22px;border-bottom:1px solid var(--border);flex-shrink:0}
+.help-head-title{font-family:var(--sans);font-weight:900;font-size:1.1rem;
+  letter-spacing:.08em;text-transform:uppercase;color:#fff}
+.help-head-title span{color:var(--accent)}
+.help-close{background:none;border:1px solid var(--dim);color:var(--muted);
+  font-family:var(--mono);font-size:.9rem;padding:4px 10px;cursor:pointer;
+  transition:all .15s}
+.help-close:hover{border-color:var(--accent);color:var(--accent)}
+
+.help-body{flex:1;overflow-y:auto;padding:20px 22px;scroll-behavior:smooth}
+.help-body::-webkit-scrollbar{width:4px}
+.help-body::-webkit-scrollbar-track{background:transparent}
+.help-body::-webkit-scrollbar-thumb{background:var(--dim);border-radius:2px}
+
+.help-toc{display:flex;flex-direction:column;gap:4px;
+  background:var(--bg3);border:1px solid var(--border);padding:12px 14px;margin-bottom:20px}
+.help-toc-title{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;
+  color:var(--muted);margin-bottom:8px}
+.help-toc a{font-family:var(--mono);font-size:.68rem;color:var(--muted);
+  text-decoration:none;padding:2px 0;transition:color .1s}
+.help-toc a:hover{color:var(--accent)}
+
+.help-section{margin-bottom:28px}
+.help-section-title{font-family:var(--sans);font-weight:700;font-size:.95rem;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--accent);
+  border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:12px}
+.help-item{margin-bottom:12px}
+.help-item-label{font-family:var(--sans);font-weight:700;font-size:.85rem;
+  color:#fff;margin-bottom:4px}
+.help-item-label .tag{display:inline-block;font-family:var(--mono);font-size:.58rem;
+  padding:1px 6px;margin-left:6px;vertical-align:middle;border-radius:2px}
+.tag-green{background:rgba(62,207,106,.15);color:#3ecf6a;border:1px solid rgba(62,207,106,.3)}
+.tag-amber{background:rgba(232,160,32,.12);color:var(--accent);border:1px solid rgba(232,160,32,.25)}
+.tag-red{background:rgba(232,64,64,.12);color:#e84040;border:1px solid rgba(232,64,64,.25)}
+.tag-blue{background:rgba(125,220,240,.1);color:#7ddcf0;border:1px solid rgba(125,220,240,.2)}
+.tag-grey{background:rgba(90,99,112,.2);color:#5a6370;border:1px solid rgba(90,99,112,.3)}
+.help-item p{font-size:.8rem;color:var(--text);line-height:1.6;margin-bottom:4px}
+.help-item code{font-family:var(--mono);font-size:.72rem;
+  background:var(--bg3);border:1px solid var(--dim);
+  padding:1px 5px;border-radius:2px;color:#c8cfd8}
+.help-rule{display:flex;align-items:baseline;gap:8px;
+  padding:5px 0;border-top:1px solid var(--border)}
+.help-rule:first-of-type{border-top:none}
+.help-rule-thresh{font-family:var(--mono);font-size:.7rem;color:var(--accent);
+  white-space:nowrap;min-width:90px}
+.help-rule-desc{font-size:.75rem;color:var(--muted);line-height:1.45}
+
+/* ── War narrative block ─────────────────────────────────────────────── */
+.narrative{background:rgba(255,255,255,.025);border:1px solid var(--border);
+  border-left:3px solid var(--accent);padding:16px 20px;margin-bottom:14px}
+.narrative-summary{font-size:.88rem;color:var(--text);line-height:1.65;margin-bottom:14px}
+.narrative-triggers{display:flex;flex-direction:column;gap:0}
+.trigger-row{display:grid;grid-template-columns:110px 1fr;gap:0;
+  border-top:1px solid var(--border);padding:8px 0}
+.trigger-row:last-child{border-bottom:1px solid var(--border)}
+.trigger-date{font-family:var(--mono);font-size:.65rem;color:var(--muted);
+  padding-right:14px;padding-top:2px;white-space:nowrap}
+.trigger-content{}
+.trigger-label{font-family:var(--sans);font-weight:700;font-size:.85rem;
+  letter-spacing:.03em;color:#fff;margin-bottom:3px}
+.trigger-detail{font-family:var(--mono);font-size:.65rem;color:var(--muted);line-height:1.5}
+
+.footer{font-family:var(--mono);font-size:.6rem;color:var(--muted);
+  border-top:1px solid var(--border);padding-top:14px;margin-top:8px;line-height:1.9}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="header">
+  <div>
+    <h1>WAR<span>TRADE</span> BACKTEST</h1>
+    <div class="sub">MULTI-STRATEGY · OIL · EQUITY · CONFLICT TIMING</div>
+  </div>
+  <div style="text-align:right">
+    <div class="ts" id="ts"></div>
+    <div class="badges">
+      <div class="badge" id="eqBadge">—</div>
+      <div class="badge oil" id="oilBadge">—</div>
+    </div>
+  </div>
+</div>
+
+<div class="legend-strip" id="legendStrip"></div>
+<div class="summary-row"  id="summaryRow"></div>
+<div class="tab-row"      id="tabRow"></div>
+<div id="panelArea"></div>
+
+<!-- ── Help button & drawer ──────────────────────────────────────────── -->
+<button class="help-btn" id="helpBtn" title="How to read this report">?</button>
+<div class="help-overlay" id="helpOverlay"></div>
+<div class="help-drawer" id="helpDrawer">
+  <div class="help-head">
+    <div class="help-head-title">REPORT <span>GUIDE</span></div>
+    <button class="help-close" id="helpClose">✕ CLOSE</button>
+  </div>
+  <div class="help-body">
+
+    <!-- TOC -->
+    <div class="help-toc">
+      <div class="help-toc-title">JUMP TO SECTION</div>
+      <a href="#h-overview">Overview &amp; KPI Cards</a>
+      <a href="#h-legend">Strategy Legend</a>
+      <a href="#h-strategies">The Three Strategies</a>
+      <a href="#h-signals">Signal Logic &amp; Allocation Rules</a>
+      <a href="#h-charts">Charts Explained</a>
+      <a href="#h-metrics">Performance Metrics</a>
+      <a href="#h-unreal">Unrealized Position Box</a>
+      <a href="#h-narrative">War Narrative &amp; Triggers</a>
+      <a href="#h-caveats">Caveats &amp; Limitations</a>
+    </div>
+
+    <!-- Overview -->
+    <div class="help-section" id="h-overview">
+      <div class="help-section-title">Overview &amp; KPI Cards</div>
+      <div class="help-item">
+        <div class="help-item-label">Events <span class="tag tag-amber">top card</span></div>
+        <p>The number of conflict windows included in this run. Each window is an independent backtest over a specific war period.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Avg Return</div>
+        <p>The arithmetic mean total return for that strategy across all event windows. A strategy that returned +12% in one war and −4% in another would show +4% here. Does <em>not</em> compound across windows.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Avg Alpha</div>
+        <p>Mean return minus the Buy &amp; Hold return for the same window. Positive alpha means the strategy beat the passive benchmark. The win count (e.g. <code>4/7 wins</code>) shows how many individual windows produced positive alpha.</p>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="help-section" id="h-legend">
+      <div class="help-section-title">Strategy Legend Strip</div>
+      <p style="font-size:.8rem;color:var(--text);line-height:1.6;margin-bottom:10px">
+        The coloured lines at the top of the page map colours to strategies. The same colours appear on all charts and tables throughout the report, so you can always identify which line belongs to which strategy at a glance.
+      </p>
+      <div class="help-item">
+        <div class="help-item-label"><span class="tag tag-amber">solid line</span> OilWar Active</div>
+        <p>Amber/orange. A dynamic strategy that rebalances every day.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label"><span class="tag tag-green">solid line</span> OilWar Buy-Only</div>
+        <p>Green. Accumulates shares on buy signals; never sells.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label"><span class="tag tag-grey">dashed line</span> Buy &amp; Hold</div>
+        <p>Grey dashed. Passive benchmark — 100% invested from day one.</p>
+      </div>
+    </div>
+
+    <!-- Strategies -->
+    <div class="help-section" id="h-strategies">
+      <div class="help-section-title">The Three Strategies</div>
+      <div class="help-item">
+        <div class="help-item-label">OilWar Active <span class="tag tag-amber">rebalancing</span></div>
+        <p>Each day the strategy computes a target allocation (0–100%) using drawdown depth and oil momentum signals, then immediately rebalances the portfolio to that target. It can go from 0% to 100% invested overnight, and can reduce exposure just as quickly. Best interpreted as: <em>"how much of the portfolio should be in equities right now?"</em></p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">OilWar Buy-Only <span class="tag tag-green">accumulating</span></div>
+        <p>Uses the same signal logic but only ever buys — it will never reduce its equity position. When a buy signal fires, it deploys an incremental slice of the initial capital to purchase shares at the current price. The position grows over the window. The equity chart shows the <em>mark-to-market value</em> of shares held — what you would receive if you sold everything today.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Buy &amp; Hold <span class="tag tag-grey">benchmark</span></div>
+        <p>Invests 100% of capital on the first day of the window and holds through to the end. No signals, no rebalancing. Used as the baseline to measure whether active strategies add value.</p>
+      </div>
+    </div>
+
+    <!-- Signal Logic -->
+    <div class="help-section" id="h-signals">
+      <div class="help-section-title">Signal Logic &amp; Allocation Rules</div>
+      <p style="font-size:.8rem;color:var(--text);line-height:1.6;margin-bottom:10px">
+        The target allocation is built in three steps. First a base allocation is set from equity drawdown, then an oil modifier scales it, then a momentum boost may add to it.
+      </p>
+      <div class="help-item">
+        <div class="help-item-label">Step 1 — Base Allocation (drawdown from 20-day high)</div>
+        <div class="help-rule"><span class="help-rule-thresh">&lt; 3% drawdown</span><span class="help-rule-desc">0% — market is near highs, no signal</span></div>
+        <div class="help-rule"><span class="help-rule-thresh">3–5%</span><span class="help-rule-desc">25% allocation — mild pullback</span></div>
+        <div class="help-rule"><span class="help-rule-thresh">5–7%</span><span class="help-rule-desc">50% allocation — moderate dip</span></div>
+        <div class="help-rule"><span class="help-rule-thresh">7–10%</span><span class="help-rule-desc">75% allocation — significant drawdown</span></div>
+        <div class="help-rule"><span class="help-rule-thresh">&gt; 10%</span><span class="help-rule-desc">100% allocation — deep drawdown, full deployment</span></div>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Step 2 — Oil Spike Modifier (vs 5-day average)</div>
+        <div class="help-rule"><span class="help-rule-thresh">oil &lt; −5%</span><span class="help-rule-desc">×1.10 — falling oil signals de-escalation, slightly boost allocation</span></div>
+        <div class="help-rule"><span class="help-rule-thresh">−5% to +5%</span><span class="help-rule-desc">×1.00 — neutral, no adjustment</span></div>
+        <div class="help-rule"><span class="help-rule-thresh">+5% to +20%</span><span class="help-rule-desc">×1.20 — moderate war-premium spike, add to position</span></div>
+        <div class="help-rule"><span class="help-rule-thresh">&gt; +20%</span><span class="help-rule-desc">×0.70 — extreme spike, reduce (tail-risk dampener)</span></div>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Step 3 — Momentum Boost</div>
+        <p>If the equity 3-day return is &gt;+1.5% <em>and</em> oil is not spiking hard (&lt;10%), allocation gets a flat +25% bonus (capped at 100%). This rewards buying into a recovering market before the drawdown fully heals.</p>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="help-section" id="h-charts">
+      <div class="help-section-title">Charts Explained</div>
+      <div class="help-item">
+        <div class="help-item-label">OilWar Active — Daily Allocation %</div>
+        <p>Bar chart. Each bar shows what fraction of the portfolio (0–100%) was targeted on that trading day. Tall bars = fully deployed. Gaps = in cash. The rapid day-to-day variation reflects the strategy rebalancing to the current signal.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Buy-Only — Cumulative Cash Deployed %</div>
+        <p>Line chart. Shows the running total of capital committed as a percentage of the initial <code>$100,000</code>. It can only go up (or stay flat when no buy signal fires). When it reaches 100% the strategy has no more cash to deploy.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Equity Curves — All Strategies</div>
+        <p>All three strategies plotted on the same axes, rebased to <code>$100,000</code> at the start of the window. This makes the return paths directly comparable regardless of any differences in initial capital timing. The Buy &amp; Hold line is dashed grey; it is the benchmark you are trying to beat.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Oil &amp; Stock Price — Same Period</div>
+        <p>Both raw price series are rebased to <code>100</code> at the first day of the window. The equity ticker (e.g. VTI) uses the left axis; oil (WTI crude) uses the right axis. This chart sits directly below the equity curves so you can visually correlate strategy decisions with the underlying price drivers. Dashed cyan line = oil; solid coloured line = equity.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Overview Table (◈ Overview tab)</div>
+        <p>One row per conflict. Columns show RTN (total return), MDD (max drawdown), and Sharpe for each strategy side by side. Use this to spot which wars each strategy handled well or poorly, and to compare strategies within the same window.</p>
+      </div>
+    </div>
+
+    <!-- Metrics -->
+    <div class="help-section" id="h-metrics">
+      <div class="help-section-title">Performance Metrics</div>
+      <div class="help-item">
+        <div class="help-item-label">Return <span class="tag tag-green">RTN</span></div>
+        <p>Total return from window start to end: <code>(final − initial) / initial</code>. Equity curves are rebased so this is always relative to the same <code>$100,000</code> baseline.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Max Drawdown <span class="tag tag-red">MDD</span></div>
+        <p>The largest peak-to-trough decline in portfolio value during the window. A max drawdown of −15% means the portfolio fell 15% from its highest point before recovering. Lower (less negative) is better.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Sharpe Ratio</div>
+        <p>Total return divided by annualised volatility. A rough measure of return per unit of risk. Above 1.0 is considered good; above 2.0 is excellent. Negative Sharpe means the strategy lost money. Note: calculated over a short window so values are noisy.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Final Value</div>
+        <p>The absolute dollar value of the portfolio at the end of the window, starting from <code>$100,000</code>.</p>
+      </div>
+    </div>
+
+    <!-- Unrealized box -->
+    <div class="help-section" id="h-unreal">
+      <div class="help-section-title">Unrealized Position Box</div>
+      <p style="font-size:.8rem;color:var(--text);line-height:1.6;margin-bottom:10px">
+        This green-tinted box appears only for the OilWar Buy-Only strategy. Because it never sells, its performance cannot be realised as cash — it exists as a pile of shares.
+      </p>
+      <div class="help-item">
+        <div class="help-item-label">Final Unrealized Value</div>
+        <p>Shares held × last closing price. What you would receive (before tax/fees) if you sold everything on the last day of the window.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Unrealized Return</div>
+        <p>The percentage gain or loss on cash actually deployed. If <code>$60,000</code> was deployed and the position is now worth <code>$72,000</code>, the unrealised return is +20%.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Max Value Drawdown</div>
+        <p>The worst mark-to-market decline in the position's value during the window — not in cash terms, but as a fraction of peak unrealised value.</p>
+      </div>
+    </div>
+
+    <!-- Narrative -->
+    <div class="help-section" id="h-narrative">
+      <div class="help-section-title">War Narrative &amp; Triggers</div>
+      <p style="font-size:.8rem;color:var(--text);line-height:1.6;margin-bottom:10px">
+        The amber-bordered box at the top of each war tab gives historical context and maps key events to strategy behaviour.
+      </p>
+      <div class="help-item">
+        <div class="help-item-label">Summary paragraph</div>
+        <p>A concise overview of the conflict's arc and how it affected oil and equity markets during the backtest window.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Trigger timeline</div>
+        <p>Each row is a dated market event. The description explains which signal it would activate — e.g. a large drawdown crossing the 10% threshold, an extreme oil spike hitting the ×0.70 dampener, or a de-escalation causing oil to fall and allocation to reduce. Use this to understand <em>why</em> the equity and allocation charts move when they do.</p>
+      </div>
+    </div>
+
+    <!-- Caveats -->
+    <div class="help-section" id="h-caveats">
+      <div class="help-section-title">Caveats &amp; Limitations</div>
+      <div class="help-item">
+        <div class="help-item-label">No transaction costs</div>
+        <p>The backtest does not deduct commissions, bid-ask spread, or market impact. Real-world returns would be lower, especially for OilWar Active which rebalances daily.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Look-ahead free, but short windows</div>
+        <p>Each window is isolated — signals only use data up to the current bar. However, windows of 6–12 months produce noisy Sharpe ratios and limited statistical significance.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Oil futures (CL=F) continuity</div>
+        <p>WTI front-month futures prices may show roll gaps. The 5-day average smooths most of this, but extreme spikes around contract rolls can generate spurious signals.</p>
+      </div>
+      <div class="help-item">
+        <div class="help-item-label">Research use only</div>
+        <p>This report is for research and educational purposes. It is not financial advice. Past performance in historical conflict windows does not guarantee future results.</p>
+      </div>
+    </div>
+
+  </div><!-- /help-body -->
+</div><!-- /help-drawer -->
+
+<div class="footer">
+  DISCLAIMER · Research only — not financial advice. &nbsp;|&nbsp;
+  <strong>OilWar Active</strong>: rebalances daily to drawdown/oil target (buys &amp; sells). &nbsp;|&nbsp;
+  <strong>OilWar Buy-Only</strong>: accumulates shares on buy signals, never sells.
+  <em>Unrealized value</em> = shares held × current price — what you'd receive if you sold today.
+  Cash deployment chart shows % of initial capital committed over time. &nbsp;|&nbsp;
+  <strong>Buy &amp; Hold</strong>: 100% invested from day one, passive benchmark. &nbsp;|&nbsp;
+  All equity curves re-based to $100,000 at window start for fair comparison. &nbsp;|&nbsp;
+  <strong>Oil &amp; Stock Price</strong>: raw price indices (rebased to 100 at window start) over the same period.
+</div>
+</div>
+
+<script>
+const EQUITY = "<<EQUITY>>";
+const OIL    = "<<OIL>>";
+const DATA   = <<DATA>>;
+const BO_NAME = "OilWar Buy-Only";
+
+document.getElementById('ts').textContent =
+  new Date().toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+document.getElementById('eqBadge').textContent  = EQUITY;
+document.getElementById('oilBadge').textContent = OIL + ' (WTI)';
+
+const pct = (v,d=1) => (v>=0?'+':'')+(v*100).toFixed(d)+'%';
+const usd = v => '$'+Number(v).toLocaleString('en-US',{maximumFractionDigits:0});
+const sgn = v => v >= 0 ? 'pos' : 'neg';
+
+function baseChart() {
+  return {
+    responsive:true, maintainAspectRatio:false, animation:{duration:500},
+    plugins:{
+      legend:{labels:{color:'#5a6370',font:{family:"'Share Tech Mono'"},boxWidth:10}},
+      tooltip:{backgroundColor:'#181c20',borderColor:'#2e333b',borderWidth:1,
+               titleColor:'#fff',bodyColor:'#c8cfd8',
+               callbacks:{label:ctx=>' $'+ctx.parsed.y.toLocaleString()}}
+    },
+    scales:{
+      x:{type:'time',time:{unit:'month'},grid:{color:'#181c20'},
+         ticks:{color:'#3a4048',font:{family:"'Share Tech Mono'",size:10}}},
+      y:{grid:{color:'#1c2028'},
+         ticks:{color:'#3a4048',font:{family:"'Share Tech Mono'",size:10},callback:v=>'$'+(v/1000).toFixed(0)+'k'}}
+    }
+  };
+}
+function pctChart() {
+  return {
+    responsive:true, maintainAspectRatio:false, animation:{duration:500},
+    plugins:{legend:{display:false},
+      tooltip:{backgroundColor:'#181c20',borderColor:'#2e333b',borderWidth:1,
+               titleColor:'#fff',bodyColor:'#c8cfd8',
+               callbacks:{label:ctx=>' '+(ctx.parsed.y*100).toFixed(0)+'%'}}},
+    scales:{
+      x:{type:'time',time:{unit:'month'},grid:{color:'#181c20'},
+         ticks:{color:'#3a4048',font:{family:"'Share Tech Mono'",size:10}}},
+      y:{min:0,max:1,grid:{color:'#1c2028'},
+         ticks:{color:'#3a4048',font:{family:"'Share Tech Mono'",size:10},callback:v=>(v*100).toFixed(0)+'%'}}
+    }
+  };
+}
+
+// Price chart: dual axis — stock on left (rebased), oil on right (rebased)
+function priceChart(eventColor) {
+  return {
+    responsive:true, maintainAspectRatio:false, animation:{duration:500},
+    interaction:{mode:'index',intersect:false},
+    plugins:{
+      legend:{display:false},
+      tooltip:{
+        backgroundColor:'#181c20',borderColor:'#2e333b',borderWidth:1,
+        titleColor:'#fff',bodyColor:'#c8cfd8',
+        callbacks:{
+          label: ctx => {
+            const label = ctx.dataset.label;
+            const val   = ctx.parsed.y;
+            return ` ${label}: ${val.toFixed(1)}`;
+          }
+        }
+      }
+    },
+    scales:{
+      x:{
+        type:'time',time:{unit:'month'},grid:{color:'#181c20'},
+        ticks:{color:'#3a4048',font:{family:"'Share Tech Mono'",size:10}}
+      },
+      yStock:{
+        type:'linear', position:'left',
+        grid:{color:'#1c2028'},
+        ticks:{color: eventColor || '#e8a020',
+               font:{family:"'Share Tech Mono'",size:10},
+               callback: v => v.toFixed(0)}
+      },
+      yOil:{
+        type:'linear', position:'right',
+        grid:{drawOnChartArea:false},
+        ticks:{color:'#7ddcf0',
+               font:{family:"'Share Tech Mono'",size:10},
+               callback: v => v.toFixed(0)}
+      }
+    }
+  };
+}
+
+// LEGEND
+function buildLegend() {
+  if (!DATA.length) return;
+  const strip = document.getElementById('legendStrip');
+  const descs = {
+    'OilWar Active':   'Rebalances daily to target. Buys & sells based on drawdown + oil signals.',
+    'OilWar Buy-Only': 'Buys at signals, never sells. Shows unrealized value if you sold today.',
+    'Buy & Hold':      'Passive benchmark. 100% invested from day one.',
+  };
+  strip.innerHTML = DATA[0].strategies.map(s => {
+    const dashed = s.name==='Buy & Hold';
+    return `<div class="legend-item">
+      <div>
+        <div class="leg-line${dashed?' dashed':''}" style="${dashed?'--c:'+s.color+';':'background:'+s.color}"></div>
+      </div>
+      <div>
+        <div>${s.name}</div>
+        <div class="leg-desc">${descs[s.name]||''}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// SUMMARY KPIs
+function buildSummary() {
+  if (!DATA.length) return;
+  const names = DATA[0].strategies.map(s=>s.name).filter(n=>n!=='Buy & Hold');
+  const totRet={}, totAlpha={}, wins={};
+  names.forEach(n=>{totRet[n]=0;totAlpha[n]=0;wins[n]=0;});
+
+  DATA.forEach(ev=>{
+    const byName={};
+    ev.strategies.forEach(s=>byName[s.name]=s);
+    const bhRet = byName['Buy & Hold']?.metrics?.return||0;
+    names.forEach(n=>{
+      const r = byName[n]?.metrics?.return||0;
+      totRet[n]   += r;
+      totAlpha[n] += r - bhRet;
+      if (r - bhRet > 0) wins[n]++;
+    });
+  });
+
+  const n = DATA.length;
+  const row = document.getElementById('summaryRow');
+  const kpis = [{label:'Events',val:n,fmt:v=>v,cls:'',sub:'conflict windows',hi:true}];
+  names.forEach(name=>{
+    kpis.push({label:name+' avg return',val:totRet[name]/n,fmt:v=>pct(v),cls:sgn(totRet[name]/n),sub:'across all windows'});
+    kpis.push({label:name+' avg alpha', val:totAlpha[name]/n,fmt:v=>pct(v),cls:sgn(totAlpha[name]/n),sub:`vs B&H · ${wins[name]}/${n} wins`});
+  });
+  row.innerHTML = kpis.map(k=>`
+    <div class="kpi${k.hi?' hi':''}">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-val ${k.cls}">${k.fmt(k.val)}</div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>`).join('');
+}
+
+// OVERVIEW TABLE
+function buildOverview() {
+  if (!DATA.length) return '';
+  const strats = DATA[0].strategies.map(s=>s.name);
+  const hdrs = strats.map(n=>`<th colspan="3">${n}</th>`).join('');
+  const sub  = strats.map(()=>'<th>RTN</th><th>MDD</th><th>SHARPE</th>').join('');
+  const rows = DATA.map(ev=>{
+    const m={};
+    ev.strategies.forEach(s=>m[s.name]=s);
+    return `<tr>
+      <td><span class="sw" style="background:${ev.color}"></span>${ev.name}</td>
+      <td class="neu-val">${m[strats[0]]?.metrics?.days||0}d</td>
+      ${strats.map(n=>{const r=m[n]?.metrics||{};return`
+        <td class="${sgn(r.return||0)}-val">${pct(r.return||0)}</td>
+        <td class="neg-val">${pct(r.max_dd||0)}</td>
+        <td class="neu-val">${(r.sharpe||0).toFixed(2)}</td>`;}).join('')}
+    </tr>`;
+  }).join('');
+  return `<table class="ov-table">
+    <thead><tr><th rowspan="2">EVENT</th><th rowspan="2">DAYS</th>${hdrs}</tr>
+    <tr>${sub}</tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+// EVENT PANEL
+function buildEventPanel(ev) {
+  const key = ev.name.replace(/\W/g,'_');
+  const byName={};
+  ev.strategies.forEach(s=>byName[s.name]=s);
+  const bo  = byName[BO_NAME];
+  const bom = bo?.metrics||{};
+
+  const unrealBox = bo ? `
+    <div class="unreal-box">
+      <div class="unreal-title">🔒 ${BO_NAME} — Unrealized Position (sell anytime to realise)</div>
+      <div class="unreal-row">
+        <div class="us"><div class="us-label">FINAL UNREAL. VALUE</div>
+          <div class="us-val">${usd(bom.final||0)}</div></div>
+        <div class="us"><div class="us-label">UNREAL. RETURN</div>
+          <div class="us-val ${sgn(bom.return||0)}">${pct(bom.return||0)}</div></div>
+        <div class="us"><div class="us-label">MAX VALUE DRAWDOWN</div>
+          <div class="us-val neg">${pct(bom.max_dd||0)}</div></div>
+        <div class="us"><div class="us-label">SHARPE (UNREAL.)</div>
+          <div class="us-val">${(bom.sharpe||0).toFixed(2)}</div></div>
+        <div class="us"><div class="us-label">WHAT THIS MEANS</div>
+          <div class="us-note">Shares accumulate at each buy signal and are never sold.
+          The value shown is mark-to-market. You could sell at any time to realise this gain or loss.</div></div>
+      </div>
+    </div>` : '';
+
+  const tRows = ev.strategies.map(s=>{
+    const r=s.metrics||{};
+    return `<tr>
+      <td><span class="sw" style="background:${s.color}"></span>${s.name}</td>
+      <td class="${sgn(r.return||0)}-val">${pct(r.return||0)}</td>
+      <td class="neg-val">${pct(r.max_dd||0)}</td>
+      <td class="neu-val">${(r.sharpe||0).toFixed(2)}</td>
+      <td class="neu-val">${usd(r.final||0)}</td>
+    </tr>`;
+  }).join('');
+
+  // Price chart inline legend
+  const priceLegend = `
+    <div class="price-chart-legend">
+      <div class="pcl-item">
+        <div class="pcl-swatch" style="background:${ev.color}"></div>
+        <span>${EQUITY} Price (rebased, left axis)</span>
+      </div>
+      <div class="pcl-item">
+        <div class="pcl-swatch" style="background:#7ddcf0"></div>
+        <span>${OIL} Oil Price (rebased, right axis)</span>
+      </div>
+    </div>`;
+
+  // War narrative block
+  const narrativeBox = (ev.summary || ev.triggers?.length) ? (() => {
+    const triggerRows = (ev.triggers || []).map(t => `
+      <div class="trigger-row">
+        <div class="trigger-date">${t.date}</div>
+        <div class="trigger-content">
+          <div class="trigger-label">${t.label}</div>
+          <div class="trigger-detail">${t.detail}</div>
+        </div>
+      </div>`).join('');
+    return `
+    <div class="narrative">
+      <div class="narrative-summary">${ev.summary || ''}</div>
+      ${triggerRows ? `<div class="narrative-triggers">${triggerRows}</div>` : ''}
+    </div>`;
+  })() : '';
+
+  return `
+    ${narrativeBox}
+    ${unrealBox}
+    <table class="strat-table">
+      <thead><tr>
+        <th>STRATEGY</th><th>RETURN</th><th>MAX DRAWDOWN</th>
+        <th>SHARPE</th><th>FINAL VALUE</th>
+      </tr></thead>
+      <tbody>${tRows}</tbody>
+    </table>
+    <div class="chart-grid-top">
+      <div class="chart-box" style="height:220px">
+        <div class="chart-title">OilWar Active — Daily Allocation %</div>
+        <canvas id="cal_${key}"></canvas>
+      </div>
+      <div class="chart-box" style="height:220px">
+        <div class="chart-title">Buy-Only — Cumulative Cash Deployed %</div>
+        <canvas id="cdp_${key}"></canvas>
+      </div>
+    </div>
+    <div class="chart-grid-wide">
+      <div class="chart-box" style="height:260px">
+        <div class="chart-title">Equity Curves — All Strategies</div>
+        <canvas id="ceq_${key}"></canvas>
+      </div>
+    </div>
+    <div class="chart-grid-wide">
+      <div class="chart-box tall" style="height:220px">
+        <div class="chart-title">Oil &amp; Stock Price — Same Period (Rebased to 100)</div>
+        ${priceLegend}
+        <canvas id="cpr_${key}"></canvas>
+      </div>
+    </div>`;
+}
+
+function initEventCharts(ev) {
+  const key = ev.name.replace(/\W/g,'_');
+  const byName={};
+  ev.strategies.forEach(s=>byName[s.name]=s);
+
+  // All-strategy equity chart
+  const eqEl = document.getElementById('ceq_'+key);
+  if (eqEl) {
+    new Chart(eqEl, {type:'line', data:{datasets:ev.strategies.map(s=>({
+      label:s.name, data:s.equity,
+      borderColor:s.color,
+      backgroundColor: s.name==='Buy & Hold' ? 'transparent' : s.color+'14',
+      fill: s.name!=='Buy & Hold',
+      borderWidth: s.name==='Buy & Hold' ? 1.5 : 2,
+      borderDash: s.name==='Buy & Hold' ? [4,4] : [],
+      pointRadius:0, tension:0.3
+    }))}, options:baseChart()});
+  }
+
+  // OilWar Active — allocation bars
+  const alEl = document.getElementById('cal_'+key);
+  const act = byName['OilWar Active'];
+  if (alEl && act) {
+    new Chart(alEl, {type:'bar', data:{datasets:[{label:'Allocation',data:act.allocation,
+      backgroundColor:act.color+'99',borderWidth:0,barPercentage:1,categoryPercentage:1}]},
+      options:pctChart()});
+  }
+
+  // Buy-Only — cumulative deployment line
+  const dpEl = document.getElementById('cdp_'+key);
+  const bo = byName[BO_NAME];
+  if (dpEl && bo) {
+    new Chart(dpEl, {type:'line', data:{datasets:[{label:'Deployed %',data:bo.allocation,
+      borderColor:bo.color, backgroundColor:bo.color+'22',
+      fill:true, borderWidth:2, pointRadius:0, tension:0.4}]},
+      options:pctChart()});
+  }
+
+  // Oil & Stock price chart — dual axis, rebased to 100
+  const prEl = document.getElementById('cpr_'+key);
+  if (prEl && ev.stock_price && ev.oil_price_series) {
+    // Rebase both series to 100 at their first data point
+    function rebase(pts) {
+      if (!pts || !pts.length) return [];
+      const base = pts[0].y;
+      if (!base || base === 0) return pts;
+      return pts.map(p => ({x: p.x, y: round2(p.y / base * 100)}));
+    }
+    function round2(v) { return Math.round(v * 100) / 100; }
+
+    const stockRebased = rebase(ev.stock_price);
+    const oilRebased   = rebase(ev.oil_price_series);
+
+    new Chart(prEl, {
+      type: 'line',
+      data: {
+        datasets: [
+          {
+            label: EQUITY + ' (rebased)',
+            data: stockRebased,
+            borderColor: ev.color,
+            backgroundColor: ev.color + '14',
+            fill: true,
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.3,
+            yAxisID: 'yStock',
+          },
+          {
+            label: OIL + ' Oil (rebased)',
+            data: oilRebased,
+            borderColor: '#7ddcf0',
+            backgroundColor: 'transparent',
+            fill: false,
+            borderWidth: 1.5,
+            borderDash: [3, 3],
+            pointRadius: 0,
+            tension: 0.3,
+            yAxisID: 'yOil',
+          }
+        ]
+      },
+      options: priceChart(ev.color)
+    });
+  }
+}
+
+function buildTabs() {
+  const tabRow=document.getElementById('tabRow');
+  const panelArea=document.getElementById('panelArea');
+
+  const ovTab=document.createElement('div');
+  ovTab.className='tab active'; ovTab.innerHTML='◈ Overview';
+  ovTab.dataset.target='panel_overview'; tabRow.appendChild(ovTab);
+
+  const ovPanel=document.createElement('div');
+  ovPanel.className='panel active'; ovPanel.id='panel_overview';
+  ovPanel.innerHTML=buildOverview(); panelArea.appendChild(ovPanel);
+
+  DATA.forEach(ev=>{
+    const id='panel_'+ev.name.replace(/\W/g,'_');
+    const tab=document.createElement('div');
+    tab.className='tab';
+    tab.innerHTML=`<span class="tab-dot" style="background:${ev.color}"></span>${ev.name}`;
+    tab.dataset.target=id; tabRow.appendChild(tab);
+
+    const panel=document.createElement('div');
+    panel.className='panel'; panel.id=id;
+    panel.innerHTML=buildEventPanel(ev); panelArea.appendChild(panel);
+  });
+
+  tabRow.addEventListener('click',e=>{
+    const tab=e.target.closest('.tab'); if(!tab) return;
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    const panel=document.getElementById(tab.dataset.target);
+    panel.classList.add('active');
+    if(!panel.dataset.chartsReady){
+      panel.dataset.chartsReady='1';
+      const ev=DATA.find(x=>'panel_'+x.name.replace(/\W/g,'_')===tab.dataset.target);
+      if(ev) initEventCharts(ev);
+    }
+  });
+}
+
+buildLegend();
+buildSummary();
+buildTabs();
+
+// ── Help drawer ────────────────────────────────────────────────────────────
+(function(){
+  const btn     = document.getElementById('helpBtn');
+  const drawer  = document.getElementById('helpDrawer');
+  const overlay = document.getElementById('helpOverlay');
+  const close   = document.getElementById('helpClose');
+
+  function openDrawer(){
+    drawer.classList.add('open');
+    overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeDrawer(){
+    drawer.classList.remove('open');
+    overlay.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  btn.addEventListener('click', openDrawer);
+  close.addEventListener('click', closeDrawer);
+  overlay.addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', e => { if(e.key === 'Escape') closeDrawer(); });
+
+  // TOC smooth scroll within drawer body
+  drawer.querySelectorAll('.help-toc a').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const target = drawer.querySelector(a.getAttribute('href'));
+      if(target) target.scrollIntoView({behavior:'smooth', block:'start'});
+    });
+  });
+})();
+</script>
+</body>
+</html>
