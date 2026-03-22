@@ -840,7 +840,257 @@ function init() {
   switchTab('overview', stratStartStr, todayStr);
 }
 
+// ── HELP DRAWER ───────────────────────────────────────────────────────────
+
+const HELP_CONTENT = {
+
+  overview: `
+    <div class="hd-section">
+      <div class="hd-section-title">Overview Panel</div>
+
+      <div class="hd-item">
+        <div class="hd-item-label">Today's Signal <span class="hd-badge accent">LIVE</span></div>
+        <div class="hd-item-desc">The actionable signal computed right now by the OilWar Active strategy using live market data. This is what you act on today.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Allocation %</div>
+        <div class="hd-item-desc">The fraction of your portfolio the signal recommends putting into equity today. 0% = stay in cash. 100% = fully invested.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Price &amp; 20-day High</div>
+        <div class="hd-item-desc">Current equity close price and the rolling 20-day peak. The gap between them drives the drawdown signal.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Drawdown</div>
+        <div class="hd-item-desc">How far the equity has fallen from its 20-day high, expressed as a percentage. Higher drawdowns trigger larger buy allocations — the strategy interprets dips as entry opportunities during conflict periods.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Oil Spike</div>
+        <div class="hd-item-desc">The percentage difference between today's oil price and its 5-day average. A moderate spike (+5–20%) amplifies the buy signal. An extreme spike (&gt;20%) reduces it as a tail-risk guard.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">3-day Return</div>
+        <div class="hd-item-desc">Equity return over the last 3 trading days. Positive momentum on low oil spike adds a +25% allocation boost. Negative momentum on high oil spike is a deterioration warning.</div>
+      </div>
+    </div>
+
+    <div class="hd-section">
+      <div class="hd-section-title">Signal Levels</div>
+      <div class="hd-signal-grid">
+        <div class="hd-sig-chip"><div class="hd-sig-dot" style="background:#3d4a5c"></div><div class="hd-sig-label">Hold / Cash</div><div class="hd-sig-alloc">0%</div></div>
+        <div class="hd-sig-chip"><div class="hd-sig-dot" style="background:#e8a020"></div><div class="hd-sig-label">Small Buy</div><div class="hd-sig-alloc">≤25%</div></div>
+        <div class="hd-sig-chip"><div class="hd-sig-dot" style="background:#4fa3f7"></div><div class="hd-sig-label">Moderate Buy</div><div class="hd-sig-alloc">≤50%</div></div>
+        <div class="hd-sig-chip"><div class="hd-sig-dot" style="background:#36d672"></div><div class="hd-sig-label">Large Buy</div><div class="hd-sig-alloc">≤75%</div></div>
+        <div class="hd-sig-chip" style="grid-column:1/-1"><div class="hd-sig-dot" style="background:#36d672;box-shadow:0 0 6px #36d672"></div><div class="hd-sig-label">Full Position</div><div class="hd-sig-alloc">100%</div></div>
+      </div>
+    </div>
+
+    <div class="hd-section">
+      <div class="hd-section-title">Strategy Comparison Table</div>
+      <div class="hd-item">
+        <div class="hd-item-label">Return</div>
+        <div class="hd-item-desc">Total portfolio gain or loss since the strategy start date, measured against the initial capital. Positive = green, negative = red.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Portfolio Value</div>
+        <div class="hd-item-desc">Current mark-to-market value of the portfolio: shares held (at today's price) plus uninvested cash.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Live Signal</div>
+        <div class="hd-item-desc">Each strategy's own signal computed against today's market — not historical. OilWar Active rebalances; Buy-Only only adds; Buy &amp; Hold is always fully invested.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Forecast End (p50)</div>
+        <div class="hd-item-desc">The median portfolio value at the end of the Monte Carlo forecast window. Half of simulated paths end above this, half below.</div>
+      </div>
+    </div>
+
+    <div class="hd-section">
+      <div class="hd-section-title">Signal Logic</div>
+      <div class="hd-formula">
+        Base alloc  = f(drawdown)<br>
+        &nbsp; &lt;3%  → 0%  (cash)<br>
+        &nbsp; 3–5% → 25%<br>
+        &nbsp; 5–7% → 50%<br>
+        &nbsp; 7–10%→ 75%<br>
+        &nbsp; &gt;10% → 100%<br><br>
+        Oil modifier:<br>
+        &nbsp; spike &lt; −5% → ×1.10 (de-escalation boost)<br>
+        &nbsp; −5 to +5%  → unchanged<br>
+        &nbsp; +5 to +20% → ×1.20 (war premium add)<br>
+        &nbsp; &gt;+20%     → ×0.70 (tail-risk cut)<br><br>
+        Momentum boost:<br>
+        &nbsp; 3d return &gt;+1.5% &amp; spike &lt;10% → +25%
+      </div>
+    </div>`,
+
+  strategy: `
+    <div class="hd-section">
+      <div class="hd-section-title">KPI Tiles</div>
+      <div class="hd-item">
+        <div class="hd-item-label">Total Portfolio Value <span class="hd-badge accent">TOP LINE</span></div>
+        <div class="hd-item-desc">Shares held at today's price plus all uninvested cash. This is what you would walk away with if you sold everything right now.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Shares (Invested)</div>
+        <div class="hd-item-desc">The mark-to-market value of your equity position. For OilWar Active this fluctuates daily with rebalancing. For Buy-Only it grows as new shares are purchased and never shrinks from selling.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Cash (Uninvested)</div>
+        <div class="hd-item-desc">Capital not currently deployed into equity. For Buy-Only this is the portion of initial capital not yet spent — it does not earn returns until deployed.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Return (vs Capital) <span class="hd-badge green">PERF</span></div>
+        <div class="hd-item-desc">Gain or loss expressed as a percentage of the original starting capital, not the first bar's value. Consistent across all strategies.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Today's Signal <span class="hd-badge accent">LIVE</span></div>
+        <div class="hd-item-desc">This strategy's own live signal computed against today's market conditions — each strategy type may produce a different value from the same inputs.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Forecast End (p10 / p50 / p90) <span class="hd-badge blue">MC</span></div>
+        <div class="hd-item-desc">Monte Carlo percentile outcomes at the end of the forecast window. p50 is the median — an equal number of paths end above and below it. p90 is the bull scenario (only 10% of paths exceed it). p10 is the bear scenario.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Sharpe Ratio <span class="hd-badge muted">RISK</span></div>
+        <div class="hd-item-desc">Annualised return divided by annualised volatility over the history window. Higher is better. Above 1.0 is generally considered good. Below 0 means the strategy lost money relative to its own risk.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Max Drawdown <span class="hd-badge red">RISK</span></div>
+        <div class="hd-item-desc">The largest peak-to-trough decline in portfolio value during the history window. A useful measure of downside risk — how bad did it get at the worst point.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Annualised Vol</div>
+        <div class="hd-item-desc">Standard deviation of daily returns scaled to a full year (×√252). Reflects how much the portfolio swings day-to-day.</div>
+      </div>
+    </div>
+
+    <div class="hd-section">
+      <div class="hd-section-title">Portfolio Value — History &amp; Forecast</div>
+      <div class="hd-item">
+        <div class="hd-item-label">Market (pre-strategy) <span class="hd-badge muted">CONTEXT</span></div>
+        <div class="hd-item-desc">The raw equity price before your strategy start date, rescaled so it connects seamlessly to the portfolio value line. Shows what the market was doing in the lead-up period.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Portfolio Value <span class="hd-badge accent">HISTORY</span></div>
+        <div class="hd-item-desc">Actual simulated portfolio value from strategy start through today. Hover any point for a full breakdown: shares value, cash remaining, allocation %, and signal at that date.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Forecast (median) <span class="hd-badge blue">FORECAST</span></div>
+        <div class="hd-item-desc">The p50 median path from Monte Carlo simulation. The dashed line extends the strategy forward using simulated equity and oil returns.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">P25–P75 band <span class="hd-badge blue">FORECAST</span></div>
+        <div class="hd-item-desc">The middle 50% of simulated outcomes. Half of all simulation paths stay within this shaded band — a reasonable central case range.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">P10–P90 band <span class="hd-badge blue">FORECAST</span></div>
+        <div class="hd-item-desc">The outer 80% of simulated outcomes. Only 10% of paths go above the top edge (bull case) or below the bottom edge (bear case). The wide spread reflects genuine long-term uncertainty.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">START / TODAY / WAR END markers</div>
+        <div class="hd-item-desc">Vertical dashed lines: blue = strategy activation date, amber = today (the history/forecast boundary), green = projected war end date where the oil reversion scenario begins.</div>
+      </div>
+    </div>
+
+    <div class="hd-section">
+      <div class="hd-section-title">Equity &amp; Oil Prices — All Phases</div>
+      <div class="hd-item">
+        <div class="hd-item-label">Equity (indexed, left axis)</div>
+        <div class="hd-item-desc">Equity price normalised so the first context bar = 100. Makes the trend visible regardless of absolute price level. Context, history, and forecast are shown as three connected segments.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Oil price ($, right axis)</div>
+        <div class="hd-item-desc">Raw WTI oil price in dollars. The forecast oil path follows a three-phase model: rising toward the war-peak, reverting to baseline after war end, then low-volatility drift near baseline.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Oil baseline (green dashed)</div>
+        <div class="hd-item-desc">The pre-war oil price at the strategy start date. This is the long-run reversion target after the conflict resolves.</div>
+      </div>
+    </div>
+
+    <div class="hd-section">
+      <div class="hd-section-title">Daily Allocation % / Cash Deployed %</div>
+      <div class="hd-item">
+        <div class="hd-item-label">OilWar Active — Daily Allocation</div>
+        <div class="hd-item-desc">The fraction of the portfolio invested in equity on each bar, colour-coded by signal level. Bars to the right of TODAY are forecast median allocations — how the strategy is expected to behave going forward.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">OilWar Buy-Only — Cumulative Cash Deployed</div>
+        <div class="hd-item-desc">The running total of capital spent purchasing shares, expressed as a fraction of initial capital. This only ever rises — once cash is deployed buying shares, it is not returned. The forecast shows expected further deployment.</div>
+      </div>
+    </div>
+
+    <div class="hd-section">
+      <div class="hd-section-title">Signal Timeline</div>
+      <div class="hd-item">
+        <div class="hd-item-label">Colour bars</div>
+        <div class="hd-item-desc">Each bar is one trading day. Colour encodes the allocation signal: dark grey = cash, amber = small buy, blue = moderate buy, bright green = large/full. Hover any bar for the exact date, signal label, and allocation %.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">TODAY marker</div>
+        <div class="hd-item-desc">The amber vertical line separates realised history (solid bars) from forecast (faded bars). Faded bars show the expected median signal for each future trading day.</div>
+      </div>
+    </div>`,
+
+  forecast: `
+    <div class="hd-section">
+      <div class="hd-section-title">Monte Carlo Forecast Model</div>
+      <div class="hd-item">
+        <div class="hd-item-label">How it works</div>
+        <div class="hd-item-desc">The model runs 500 independent simulated paths forward from today. Each path generates correlated daily equity and oil returns using the 20-day historical volatility and a calibrated equity-oil correlation. The strategy's signal logic runs on each path, producing a portfolio value per day. Percentile bands are then taken across all 500 paths.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Phase 1 — War period <span class="hd-badge red">NOW → WAR END</span></div>
+        <div class="hd-item-desc">Oil rises linearly toward the war-peak price. Equity drifts with its recent war-period trend. The strategy responds to rising oil with larger buy signals where drawdown warrants.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Phase 2 — Reversion <span class="hd-badge accent">WAR END → +N DAYS</span></div>
+        <div class="hd-item-desc">Oil falls linearly back to the pre-war baseline over the configured reversion window. Equity recovers at a symmetric rate to its war-period decline. The strategy typically reduces position size as oil normalises.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Phase 3 — Post-war <span class="hd-badge green">THEREAFTER</span></div>
+        <div class="hd-item-desc">Oil drifts near the baseline with reduced volatility. Equity returns to normal-vol random walk. Signals become driven purely by equity drawdown without an oil premium.</div>
+      </div>
+      <div class="hd-item">
+        <div class="hd-item-label">Correlation</div>
+        <div class="hd-item-desc">Equity and oil returns are negatively correlated in the model (oil up → equity down) using a 60-bar rolling estimate clamped to a realistic range. During the reversion phase the correlation is tightened to make the equity recovery more visible.</div>
+      </div>
+    </div>`,
+};
+
+function buildHelpContent(tabId) {
+  const sections = [];
+  if (tabId === 'overview') {
+    sections.push(HELP_CONTENT.overview);
+  } else {
+    sections.push(HELP_CONTENT.strategy);
+    sections.push(HELP_CONTENT.forecast);
+  }
+  document.getElementById('helpBody').innerHTML = sections.join('<hr class="hd-divider">');
+}
+
+(function initHelp() {
+  const btn      = document.getElementById('helpBtn');
+  const drawer   = document.getElementById('helpDrawer');
+  const backdrop = document.getElementById('helpBackdrop');
+  const closeBtn = document.getElementById('helpClose');
+
+  function openHelp()  { drawer.classList.add('open'); backdrop.classList.add('open'); }
+  function closeHelp() { drawer.classList.remove('open'); backdrop.classList.remove('open'); }
+
+  btn.addEventListener('click', openHelp);
+  closeBtn.addEventListener('click', closeHelp);
+  backdrop.addEventListener('click', closeHelp);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHelp(); });
+
+  // Expose so switchTab can update the content
+  window._updateHelp = buildHelpContent;
+  buildHelpContent('overview');
+})();
+
 function switchTab(tabId, stratStartStr, todayStr) {
+  if (window._updateHelp) window._updateHelp(tabId);
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.tab === tabId);
   });

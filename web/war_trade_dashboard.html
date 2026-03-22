@@ -259,6 +259,115 @@ input[type=file] { display: none; }
 .ub-val   { font-family: var(--mono); font-size: 1rem; color: var(--hi); }
 .ub-val.pos { color: var(--green); } .ub-val.neg { color: var(--red); }
 .ub-note  { font-family: var(--mono); font-size: .6rem; color: var(--muted); line-height: 1.5; }
+/* ── HELP BUTTON ── */
+.help-btn {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: transparent; border: 1px solid var(--dim);
+  color: var(--muted); font-family: var(--sans); font-weight: 800;
+  font-size: .95rem; cursor: pointer; flex-shrink: 0;
+  transition: all .15s; line-height: 1;
+}
+.help-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── HELP DRAWER ── */
+.help-backdrop {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.45); z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+.help-backdrop.open { display: block; }
+
+.help-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: 420px; max-width: 92vw;
+  background: var(--bg2); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  z-index: 1001;
+  transform: translateX(100%);
+  transition: transform .28s cubic-bezier(.4,0,.2,1);
+}
+.help-drawer.open { transform: translateX(0); }
+
+.hd-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.hd-title {
+  font-family: var(--mono); font-size: .58rem;
+  letter-spacing: .22em; color: var(--accent); text-transform: uppercase;
+}
+.hd-close {
+  background: none; border: 1px solid var(--dim); color: var(--muted);
+  font-size: .8rem; width: 26px; height: 26px; cursor: pointer;
+  transition: all .15s; line-height: 1;
+}
+.hd-close:hover { border-color: var(--text); color: var(--hi); }
+
+.hd-body {
+  flex: 1; overflow-y: auto; padding: 22px;
+  display: flex; flex-direction: column; gap: 22px;
+}
+.hd-body::-webkit-scrollbar { width: 4px; }
+.hd-body::-webkit-scrollbar-track { background: var(--bg3); }
+.hd-body::-webkit-scrollbar-thumb { background: var(--dim); }
+
+/* ── HELP CONTENT ELEMENTS ── */
+.hd-section { display: flex; flex-direction: column; gap: 10px; }
+
+.hd-section-title {
+  font-family: var(--mono); font-size: .55rem;
+  letter-spacing: .2em; color: var(--muted);
+  text-transform: uppercase; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hd-item { display: flex; flex-direction: column; gap: 4px; }
+
+.hd-item-label {
+  font-family: var(--mono); font-size: .68rem;
+  font-weight: 500; color: var(--hi); letter-spacing: .04em;
+}
+.hd-item-label .hd-badge {
+  display: inline-block; font-size: .5rem; padding: 1px 6px;
+  border: 1px solid; letter-spacing: .1em; margin-left: 7px;
+  vertical-align: middle; position: relative; top: -1px;
+}
+.hd-badge.accent { border-color: var(--accent); color: var(--accent); }
+.hd-badge.green  { border-color: var(--green);  color: var(--green); }
+.hd-badge.blue   { border-color: var(--blue);   color: var(--blue); }
+.hd-badge.red    { border-color: var(--red);     color: var(--red); }
+.hd-badge.muted  { border-color: var(--dim);     color: var(--muted); }
+
+.hd-item-desc {
+  font-family: var(--mono); font-size: .65rem;
+  color: var(--text); line-height: 1.65;
+}
+
+.hd-divider {
+  border: none; border-top: 1px solid var(--border); margin: 0;
+}
+
+.hd-signal-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+}
+.hd-sig-chip {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg3); border: 1px solid var(--border);
+  padding: 6px 10px;
+}
+.hd-sig-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.hd-sig-label { font-family: var(--mono); font-size: .6rem; color: var(--text); }
+.hd-sig-alloc { font-family: var(--mono); font-size: .58rem; color: var(--muted); margin-left: auto; }
+
+.hd-formula {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  padding: 8px 12px;
+  font-family: var(--mono); font-size: .63rem;
+  color: var(--text); line-height: 1.7;
+}
 </style>
 </head>
 <body>
@@ -297,6 +406,7 @@ input[type=file] { display: none; }
       <span class="sp-label" style="margin-left:8px">ALLOC</span>
       <span class="sp-val" id="spAlloc">—</span>
     </div>
+    <button class="help-btn" id="helpBtn" title="Help &amp; reference">?</button>
     <label class="load-btn" for="fileInput">⬆ Load JSON</label>
     <input type="file" id="fileInput" accept=".json"/>
   </div>
@@ -306,6 +416,16 @@ input[type=file] { display: none; }
 
 </div><!-- .main -->
 </div><!-- .shell -->
+
+<!-- ── HELP DRAWER ── -->
+<div id="helpBackdrop" class="help-backdrop"></div>
+<aside id="helpDrawer" class="help-drawer">
+  <div class="hd-header">
+    <div class="hd-title">REFERENCE</div>
+    <button class="hd-close" id="helpClose">✕</button>
+  </div>
+  <div class="hd-body" id="helpBody"></div>
+</aside>
 
 <script src="war_trade_dashboard.js"></script>
 </body>
