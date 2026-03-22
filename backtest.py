@@ -249,9 +249,24 @@ def fetch(ticker: str, start: str, end: str) -> pd.Series:
     cache = _cache_path(ticker, start, end)
 
     if os.path.exists(cache) and not FORCE_REFRESH:
-        series = pd.read_csv(cache, index_col=0, parse_dates=True).squeeze("columns")
+        # Guard against CSVs written with a tuple series name — yfinance's
+        # MultiIndex close series produces two header rows when saved directly.
+        # Detect by checking whether row 1 (0-indexed) parses as a date.
+        with open(cache) as fh:
+            lines = [fh.readline() for _ in range(3)]
+        try:
+            pd.Timestamp(lines[1].split(",")[0].strip())
+            skip = 0   # row 1 is a date → single clean header
+        except Exception:
+            skip = 1   # row 1 is text ("VTI" etc.) → two-row header, skip it
+
+        series = pd.read_csv(cache, index_col=0, parse_dates=[0],
+                             date_format="%Y-%m-%d",
+                             skiprows=range(1, 1 + skip)).squeeze("columns")
         series.name = ticker
-        return series.dropna()
+        series.index = pd.to_datetime(series.index, format="%Y-%m-%d")
+        series.index = series.index.tz_localize(None)
+        return series.astype(float).dropna()
 
     # Cache miss (or --refresh) — download and save
     raw = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=True)
@@ -261,6 +276,15 @@ def fetch(ticker: str, start: str, end: str) -> pd.Series:
         series = raw[("Close", ticker)].dropna()
     else:
         series = raw["Close"].dropna()
+
+    # Strip timezone before saving so the CSV always contains plain dates,
+    # and the returned series is always tz-naive regardless of yfinance version.
+    if series.index.tz is not None:
+        series.index = series.index.tz_localize(None)
+
+    # Rename to a plain string — if the series name is a tuple (from a MultiIndex
+    # DataFrame) to_csv() writes two header rows which break the read-back.
+    series.name = "Close"
 
     series.to_csv(cache)
     return series
