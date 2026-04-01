@@ -1109,9 +1109,20 @@ function switchTab(tabId, stratStartStr, todayStr) {
     ? `${ctxDays}d context · ${histDays}d strategy · ${DATA.forecast_days}d forecast · ${DATA.strategies.length} strategies`
     : `${ctxDays}d pre-strategy context + ${histDays}d active + ${DATA.forecast_days}d forecast`;
 
-  if (tabId !== 'overview' && !panel.dataset.built) {
-    panel.dataset.built = '1';
+
+
+  if (tabId !== 'overview') {
     const strat = DATA.strategies.find(s => s.name === tabId);
-    if (strat) buildStrategyPanel(panel, strat, stratStartStr, todayStr);
+    if (!strat) return;
+    if(!panel.dataset.built) {
+      panel.dataset.built = '1';
+      buildStrategyPanel(panel, strat, stratStartStr, todayStr);
+    }
+    document.getElementById('signalPill').style.display = '';
+    document.getElementById('spVal').textContent = strat.live_signal;
+    document.getElementById('spVal').className     = 'sp-val ' + signalClass(strat.live_signal);
+  }else {
+    //Don't display the signal pill if the strategy is not active or we are on the overview page
+    document.getElementById('signalPill').style.display = 'none';
   }
 }
