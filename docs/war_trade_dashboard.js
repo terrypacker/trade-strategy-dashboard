@@ -16,6 +16,22 @@ document.getElementById('fileInput').addEventListener('change', e => {
   r.readAsText(file);
 });
 
+// ── EXAMPLE DATA LOAD ─────────────────────────────────────────────────────────────
+document.getElementById('loadExampleData').addEventListener('click', e => {
+  fetch('./signal_output.json')
+    .then(response => response.json())
+    .then(data => {
+      DATA = data;
+      init();
+    }).catch(error => console.error('Error:', error));
+});
+
+// ── BACKTESTING LINK ─────────────────────────────────────────────────────────────
+const backtestingLink = document.getElementById('backtestingLink');
+backtestingLink.addEventListener('click', e => {
+  window.location.href = './backtest_report.html';
+});
+
 // ── HELPERS ───────────────────────────────────────────────────────────────
 const pct  = (v, d=1) => (v >= 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
 const usd  = v => '$' + Number(v).toLocaleString('en-US', {maximumFractionDigits: 0});

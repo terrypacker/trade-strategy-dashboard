@@ -39,10 +39,15 @@ trade-strategy-dashboard/
 
 ## Requirements
 
-Python 3.10+ and three packages:
+Python 3.10+ and three packages.
 
 ```bash
-pip install yfinance pandas numpy
+# Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install yfinance pandas numpy```
 ```
 
 No other dependencies. The HTML dashboards are self-contained and open directly in any browser — no server required.

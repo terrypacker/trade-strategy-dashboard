@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>War Trade Dashboard</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;700;800&display=swap"/>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head>
+<body>
+<div class="shell">
+
+<!-- ── SIDEBAR ── -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-main">WAR<span>TRADE</span></div>
+    <div class="logo-sub">SIGNAL DASHBOARD</div>
+  </div>
+
+  <div class="nav-label">Strategies</div>
+  <div id="navItems">
+  </div>
+  <div class="nav-item" id="backtestingLink">
+    <span class="nav-dot" style="background:grey"></span>Backtesting
+  </div>
+
+
+  <div class="sidebar-footer">
+    <div class="sf-label">Generated</div>
+    <div class="sf-val" id="sfGen">—</div>
+    <div class="sf-label" style="margin-top:8px">Ticker</div>
+    <div class="sf-val" id="sfTicker">—</div>
+  </div>
+</nav>
+
+<!-- ── MAIN ── -->
+<div class="main">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="page-title" id="pageTitle">Overview</div>
+      <div class="page-subtitle" id="pageSubtitle">Load signal_output.json to begin</div>
+    </div>
+    <div class="signal-pill" id="signalPill" style="display:none">
+      <span class="sp-label">SIGNAL</span>
+      <span class="sp-val" id="spVal">—</span>
+      <span class="sp-label" style="margin-left:8px">ALLOC</span>
+      <span class="sp-val" id="spAlloc">—</span>
+    </div>
+
+    <label class="load-btn" for="fileInput">⬆ Load JSON</label>
+    <input type="file" id="fileInput" accept=".json"/>
+
+    <label class="load-btn" for="loadExampleData">⬆ Load Example Data</label>
+    <input type="button" id="loadExampleData" style="display:none"/>
+
+    <button class="help-btn" id="helpBtn" title="Help &amp; reference">?</button>
+  </div>
+
+  <!-- PANELS injected here -->
+  <div id="panelArea" style="flex:1;display:flex;flex-direction:column"></div>
+
+</div><!-- .main -->
+</div><!-- .shell -->
+
+<!-- ── HELP DRAWER ── -->
+<div id="helpBackdrop" class="help-backdrop"></div>
+<aside id="helpDrawer" class="help-drawer">
+  <div class="hd-header">
+    <div class="hd-title">REFERENCE</div>
+    <button class="hd-close" id="helpClose">✕</button>
+  </div>
+  <div class="hd-body" id="helpBody"></div>
+</aside>
+
+<script src="./war_trade_dashboard.js"></script>
+</body>
+</html>
