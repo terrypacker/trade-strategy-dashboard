@@ -18,7 +18,7 @@ document.getElementById('fileInput').addEventListener('change', e => {
 
 // ── EXAMPLE DATA LOAD ─────────────────────────────────────────────────────────────
 document.getElementById('loadExampleData').addEventListener('click', e => {
-  fetch('./signal_output.json')
+  fetch('./assets/data/signal_output.json')
     .then(response => response.json())
     .then(data => {
       DATA = data;
