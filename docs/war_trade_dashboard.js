@@ -32,6 +32,22 @@ backtestingLink.addEventListener('click', e => {
   window.location.href = './backtest_report.html';
 });
 
+// ── PYTHON SCRIPT LINK ─────────────────────────────────────────────────────────────
+const pythonLink = document.getElementById('pythonScriptLink');
+const pythonScriptUrls = ['../strategy.py', '../dashboard.py']
+pythonLink.addEventListener('click', e => {
+  pythonScriptUrls.forEach((url, index) => {
+    setTimeout(() => {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = '';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }, index * 500);
+  });
+});
+
 // ── HELPERS ───────────────────────────────────────────────────────────────
 const pct  = (v, d=1) => (v >= 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
 const usd  = v => '$' + Number(v).toLocaleString('en-US', {maximumFractionDigits: 0});
